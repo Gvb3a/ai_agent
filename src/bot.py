@@ -1,24 +1,21 @@
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command, StateFilter
-from aiogram.types import Message, FSInputFile, InputMediaPhoto
+from aiogram.types import Message, CallbackQuery, FSInputFile, InputMediaPhoto, InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import default_state, State, StatesGroup
-from colorama import Fore, Style, init
-
 import os
-
 from dotenv import load_dotenv
 from datetime import datetime
 
 
 if __name__ == '__main__' or '.' not in __name__:
-    from api import speech_recognition, llm_api, files_to_text
+    from api import speech_recognition, llm_api, files_to_text, code_interpreter
     from llm_answer import system_prompt, llm_select_tool, llm_use_tool
     from sql import sql_check_user, sql_select_history, sql_insert_message
     from log import log
     from magic import markdown_to_html
 else:
-    from .api import speech_recognition, llm_api, files_to_text
+    from .api import speech_recognition, llm_api, files_to_text, code_interpreter
     from .llm_answer import system_prompt, llm_select_tool, llm_use_tool
     from .sql import sql_check_user, sql_select_history, sql_insert_message
     from .log import log
@@ -26,7 +23,6 @@ else:
     
 
 load_dotenv()
-init()
 
 bot_token = os.getenv('BOT_TOKEN')
 # TODO: admin id
@@ -53,9 +49,9 @@ async def download_file_for_id(file_id, extension):
 
 
 @dp.message(CommandStart())  # /start command handler
-async def process_start_command(message: Message) -> None:
-    await message.answer('Hi! I am an agent with access to the internet and WolframAlpha. You can ask for actual information and any calculations.  \n\n[GitHub](https://github.com/Gvb3a/assistant)', parse_mode='Markdown')    
-
+async def start_command_handler(message: Message) -> None:
+    await message.answer('Hi! I am an AI agent that can search for information on the internet, use a calculator for large calculations and equations, summarize youtube videos, search for pictures, and execute code. How can I help you today?  \n\n[GitHub](https://github.com/Gvb3a/assistant)', parse_mode='Markdown')
+    log(f'{message.from_user.full_name}({message.from_user.username})')
 
 
 @dp.message(StateFilter(default_state))
@@ -71,7 +67,7 @@ async def message_handler(message: Message, state: FSMContext) -> None:
     temp_message_text = ['Selecting tool - 🔍', 'Using the tool - ⚙️', 'Generating response - 🤖']
     temp_message_id = message_id + 1
 
-    files = []
+    input_files = []
     
     if message.voice:
         await message.reply('Recognizing audio...')
@@ -93,7 +89,7 @@ async def message_handler(message: Message, state: FSMContext) -> None:
         file_name = file.file_path.split('/')[-1]
         await bot.download_file(file_path, file_name)
 
-        files = [file_name]
+        input_files = [file_name]
 
         text = str(message.caption) if message.caption else 'Describe the image'
 
@@ -107,7 +103,7 @@ async def message_handler(message: Message, state: FSMContext) -> None:
         file_name = file.file_path.split('/')[-1]
         await bot.download_file(file_path, file_name)
 
-        files = [file_name]
+        input_files = [file_name]
 
         text = str(message.caption) if message.caption else 'Describe the document'
 
@@ -123,74 +119,120 @@ async def message_handler(message: Message, state: FSMContext) -> None:
     messages.insert(0, {'role': 'system', 'content': system_prompt})
     messages.append({'role': 'user', 'content': text})
     
-    for file in files:
+    
+    # If the file is not a picture, convert the file to text and add it to the user message
+    for file in input_files:
         if not(file.endswith('.png') or file.endswith('.jpg') or file.endswith('.jpeg') or file.endswith('.webp')):
             messages[-1]['content'] += f'\n\n{file}:\n{files_to_text(file)}'
-            files.remove(file)
+            input_files.remove(file)
 
-    log(f'new message by {user}. messages: {text}, files: {files}')
+    log(f'new message by {user}. messages: {text}, files: {input_files}')
 
-    tools = llm_select_tool(messages=messages, files=files)
+    tools = llm_select_tool(messages=messages, files=input_files, provider='groq')
     temp_message_text[0] = temp_message_text[0][:-2] + '✅'
     await bot.edit_message_text(chat_id=chat_id, message_id=temp_message_id, text='\n'.join(temp_message_text))
 
-    tool_result, images = await llm_use_tool(tools=tools)
+    tool_result, output_files = await llm_use_tool(tools=tools)
     temp_message_text[1] = temp_message_text[1][:-2] + '✅'
     await bot.edit_message_text(chat_id=chat_id, message_id=temp_message_id, text='\n'.join(temp_message_text))
 
     
-    
     sql_insert_message(user_id=user_id, role='user', content=text)
 
-    if bool(tool_result) + bool(images):
+    if bool(tool_result) + bool(output_files):
         messages.append({'role': 'system', 'content': 'tool result:\n' + tool_result})
         sql_insert_message(user_id=user_id, role='system', content='tool result:\n' + tool_result)
         
-    answer = llm_api(messages=messages, files=files, provider='google')
+    answer = llm_api(messages=messages, files=input_files, provider='google')
     await bot.delete_message(chat_id=chat_id, message_id=temp_message_id)
     log(f'answer to {user}({text}): {answer}')
     sql_insert_message(user_id=user_id, role='assistant', content=answer)
 
 
     # TODO: images don't send
-    files += images
-    images = images[:9]
-    if images:
+    output_files = output_files[:9]
+    if output_files:
         media_group = []
-        for image in images:
-            caption = answer[:1000] if images is images[0] else None
-            media = image if image.startswith('https:') else FSInputFile(image)
-            media_group.append(InputMediaPhoto(media=media, caption=caption))
+
+        for file in output_files:
+
+            if file.endswith('.png') or file.endswith('.jpg') or file.endswith('.jpeg') or file.endswith('.webp'):
+                media = FSInputFile(file)
+                media_group.append(InputMediaPhoto(media=media))
+            else:
+                document = FSInputFile(file)
+                await bot.send_document(chat_id=chat_id, document=document)
+
         try:
             await message.answer_media_group(media=media_group)
-            answer = answer[:1000]
         except Exception as e:
             print('media group error', e)
-        finally:
-            for image in images:
-                if not image.startswith('https:'):
-                    os.remove(image)
+
+
+    if '```python' in answer:
+        inline_button = InlineKeyboardButton(text='Run code ➡', callback_data='run_last_code')
+        inline_keyboard = InlineKeyboardMarkup(inline_keyboard=[[inline_button]])
+    else:
+        inline_keyboard = None
 
     while answer:
         try:
-            await message.answer(markdown_to_html(answer[:4000]), parse_mode='HTML')
+            await message.answer(markdown_to_html(answer[:4000]), parse_mode='HTML', reply_markup=inline_keyboard)
+            inline_keyboard = None
         except Exception as e:
             print(e)
             await message.answer(answer[:4000])
         answer = answer[4000:]
 
     try:
-        for file in files:
+        for file in output_files:
             if not file.startswith('https:'):
-                os.remove(file.split('/')[-1])    
+                try:
+                    os.remove(file)
+                except:
+                    os.remove(file.split('/')[-1])  
+
     except Exception as e:
         print(e)
 
     await state.clear()
 
-@dp.message(StateFilter(FSM.processing))
-async def message_processing(message: Message):
-    await message.answer('Message is being processed. Wait. \nIf processing does not stop for a long time, write to the admin (@gvb3a)')
+
+@dp.callback_query(F.data == 'run_last_code')
+async def callback_run_last_code(callback: CallbackQuery):
+    
+    last_message = sql_select_history(2117601484)[-1]
+
+    try:
+        code = last_message['content'].split('```python')[1].split('```')[0]
+    except:
+        code = None
+
+    if (last_message['role'] != 'assistant') or ('```python' not in last_message['content']) or (not code):
+        await bot.send_message(chat_id=callback.from_user.id, text='No code found')
+        await callback.answer()
+        log(f'User: {callback.from_user.full_name}, message: {last_message}', error=True)
+        return
+    
+    str_result, image = code_interpreter(code)
+
+    if str_result.replace('\n', '') == '':
+        str_result = 'no text output'
+    
+    if image:
+        await bot.send_photo(chat_id=callback.from_user.id, photo=FSInputFile(image))
+        os.remove(image)
+
+    
+    log(f'User: {callback.from_user.full_name}, result: {str_result}, image: {bool(image)}, code: {code}')
+    sql_insert_message(user_id=callback.from_user.id, role='system', content=f'The result of code execution that is visible to the user: {str_result}. \nif there\'s an image: {bool(image)}')
+
+    while str_result:
+        await bot.send_message(chat_id=callback.from_user.id, text=f'```output\n{str_result[:4000]}\n```', parse_mode='Markdown')
+        str_result = str_result[4000:]
+    
+    callback.answer()
+    
     
 
 

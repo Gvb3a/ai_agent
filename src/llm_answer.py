@@ -3,7 +3,7 @@ from typing import Literal
 import asyncio
 
 if __name__ == '__main__' or '.' not in __name__:
-    from api import llm_api, calculator, wolfram_short_answer, wolfram_full_answer, google_short_answer, google_full_answer, google_image, youtube_sum
+    from api import llm_api, calculator, wolfram_short_answer, wolfram_full_answer, google_short_answer, google_full_answer, google_image, youtube_sum, code_interpreter
     from log import log
 
 else:
@@ -11,17 +11,19 @@ else:
     from .log import log
 
 
-system_prompt = 'You are a helpful ai agent. You can use WolframALpha, Google, Search image, Summarize YouTube videos. You are a Telegram bot providing the best answers. User does not see system message'
+system_prompt = '''You are a helpful ai agent. You can use WolframALpha, Google, Search image, Summarize YouTube videos. You are a Telegram bot providing the best answers. User does not see system message.
+
+To run the code, you must write it in ```python<code>``` and then ask the user for permission to execute it. Only the first block of code will be executed. Available matplotlib'''
 
 
 # TODO: let him decide for himself, not based on a machine solution.
 functions_description = {
     'wolfram_short_answer': {
-        'description': 'For complex calculations, solving equations, or using specific WolframAlpha features (e.g., weather, exchange rates, today date, and etc). Use if the model itself cannot calculate',
+        'description': 'For very complex calculations, solving difficult equations and up-to-date information (e.g., weather, exchange rates, today date, time and etc).',
         'output_file': False
     },
     'wolfram_full_answer': {  # TODO: Improve prompt
-        'description': 'Full Wolfram Alpha answer with pictures and step-by-step solutions. ',
+        'description': 'Full Wolfram Alpha answer with pictures and a lot of information',
         'output_file': True
     },
     'google_short_answer': {
@@ -58,7 +60,7 @@ You can call multiple functions (unless the model herself is unable to answer), 
 
 You'll be given a message history."""
 
-function_dict = {  # TODO: separate functions for files 
+function_dict = {  # TODO: separate functions for files. TODO: function_dict + functions_description
     'wolfram_short_answer': wolfram_short_answer,
     'wolfram_full_answer': wolfram_full_answer,
     'google_short_answer': google_short_answer,

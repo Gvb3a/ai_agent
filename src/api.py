@@ -10,6 +10,7 @@ from bs4 import BeautifulSoup
 from typing import Literal
 from colorama import Fore, Style, init
 import asyncio
+import base64
 
 if __name__ == '__main__' or '.' not in __name__:
     from log import log
@@ -412,9 +413,12 @@ def DDGS_images(text: str, max_results: int = 9) -> list[str]:
     return images
 
 
-def tavily_answer(query: str):
-    response = tavily_client.qna_search(query=query)
-    return response
+def tavily_search(query: str, max_results: int = 7):
+    response = tavily_client.search(query=query, max_results=max_results)
+    result = ''
+    for i in response['results']:
+        result += f'{i["url"]}({i["title"]}): {i["content"]}\n'
+    return result
 
 
 def tavily_get_context(query: str, topic = 'news') -> str:
@@ -466,7 +470,7 @@ def google_links(text: str, max_results: int = 5) -> list[str]:
 
 def google_short_answer(text: str) -> str:
     resp = DDGS_answer(text)
-    final_answer = resp if resp else tavily_answer(text)
+    final_answer = resp if resp else tavily_search(text)
     log(final_answer)
     return final_answer
     
@@ -644,5 +648,38 @@ def youtube_sum(link: str, question: str | None = None, language: str = 'en') ->
         return f'Error({e}). Most like too much text or a completely incomprehensible error that cannot be fixed (or subtitles are not available). Tell the user to try again later'
 
 
+# =========================< CODE INTERPRETER (eb2) >=========================
 
-# tavily_client.search("Who won on 2024 olympic?")
+from e2b_code_interpreter import Sandbox
+
+def code_interpreter(code: str):
+    with Sandbox() as sandbox:
+        execution = sandbox.run_code(code)
+
+        stdout = execution.logs.stdout
+        stderr = execution.logs.stderr
+
+        try:
+            first_result = execution.results[0]
+            if first_result.png:
+                image_file_name = 'e2b_image.png'
+                with open(image_file_name, 'wb') as f:
+                    f.write(base64.b64decode(first_result.png))
+            else:
+                image_file_name = None
+        except:
+            image_file_name = None
+
+        try:
+            result = stdout[0]
+        except:
+            result = ''
+
+        try:
+            result += '\n' + stderr[0]
+        except:
+            pass
+        
+        log(f'{result}, {image_file_name}')
+        return result, image_file_name
+
