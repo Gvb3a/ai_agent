@@ -9,8 +9,10 @@ This telegram bot gives access to an ai agent that can search for information on
 - [WolframAlpha](https://products.wolframalpha.com/api) - allows for complex calculations and much more
 - [DuckDuckGo](https://pypi.org/project/duckduckgo-search/) - A fast and free alternative to google (search links, pictures). [Official Site](https://duckduckgo.com/)
 - [Tavily](https://tavily.com/) - A very cool API to connect LLM to the web. Allows you to give context and also parse text from pages.
-- [YouTube Transcript API ](https://pypi.org/project/youtube-transcript-api/) - Allows you to summarize youtube videos
+- [YouTube Transcript API](https://pypi.org/project/youtube-transcript-api/) - Allows you to summarize youtube videos
 - [Whisper](https://github.com/openai/whisper) - Free speech to text model (can run locally)
+- [e2b](https://e2b.dev/) - Python compilator
+- [latexonline.cc](https://latexonline.cc/) and [Equation Render](https://latex.codecogs.com/) as LaTeX compilator
 - [pythonanywhere](https://www.pythonanywhere.com/) - hosting
 
 ### Lanch

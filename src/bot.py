@@ -6,6 +6,7 @@ from aiogram.fsm.state import default_state, State, StatesGroup
 import os
 from dotenv import load_dotenv
 from datetime import datetime
+import re
 
 
 if __name__ == '__main__' or '.' not in __name__:
@@ -25,7 +26,6 @@ else:
 load_dotenv()
 
 bot_token = os.getenv('BOT_TOKEN')
-# TODO: admin id
 
 
 class FSM(StatesGroup):
@@ -128,7 +128,7 @@ async def message_handler(message: Message, state: FSMContext) -> None:
 
     log(f'new message by {user}. messages: {text}, files: {input_files}')
 
-    tools = llm_select_tool(messages=messages, files=input_files, provider='groq')
+    tools = llm_select_tool(messages=messages, files=input_files, provider='google')
     temp_message_text[0] = temp_message_text[0][:-2] + '✅'
     await bot.edit_message_text(chat_id=chat_id, message_id=temp_message_id, text='\n'.join(temp_message_text))
 
@@ -200,20 +200,20 @@ async def message_handler(message: Message, state: FSMContext) -> None:
 
 @dp.callback_query(F.data == 'run_last_code')
 async def callback_run_last_code(callback: CallbackQuery):
-    
-    last_message = sql_select_history(2117601484)[-1]
+    text = callback.message.md_text
 
     try:
-        code = last_message['content'].split('```python')[1].split('```')[0]
+        code = text.split('```python')[1].split('```')[0]
+        code = re.sub(r'\\([_*()[\]{}#+\-!.<>|=`\\])', r'\1', code)
     except:
         code = None
 
-    if (last_message['role'] != 'assistant') or ('```python' not in last_message['content']) or (not code):
+    if not code:
         await bot.send_message(chat_id=callback.from_user.id, text='No code found')
+        log(f'User: {callback.from_user.full_name}, message: {text}', error=True)
         await callback.answer()
-        log(f'User: {callback.from_user.full_name}, message: {last_message}', error=True)
         return
-    
+    print(code)
     str_result, image = code_interpreter(code)
 
     if str_result.replace('\n', '') == '':

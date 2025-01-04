@@ -13,13 +13,13 @@ else:
 
 system_prompt = '''You are a helpful ai agent. You can use WolframALpha, Google, Search image, Summarize YouTube videos. You are a Telegram bot providing the best answers. User does not see system message.
 
-To run the code, you must write it in ```python<code>``` and then ask the user for permission to execute it. Only the first block of code will be executed. Available matplotlib'''
+To run the code, you must write it in ```python<code>``` and ask the user to click the button below the message to execute the. Only the first block of code will be executed. Available matplotlib'''
 
 
 # TODO: let him decide for himself, not based on a machine solution.
 functions_description = {
     'wolfram_short_answer': {
-        'description': 'For very complex calculations, solving difficult equations and up-to-date information (e.g., weather, exchange rates, today date, time and etc).',
+        'description': 'For complex calculations, solving difficult equations and up-to-date information (e.g., weather, exchange rates, today date, time and etc). Не используй для обычного решения ',
         'output_file': False
     },
     'wolfram_full_answer': {  # TODO: Improve prompt
@@ -88,7 +88,6 @@ def llm_select_tool(messages: list | str, files: list = [], provider: Literal['g
         'content': user_message
         }
     ]
-
     llm_answer = llm_api(messages=message_history, files=files, provider=provider) + '\n'
     answers = llm_answer.split('\n')
     tools = []

@@ -154,12 +154,11 @@ import PIL.Image
 
 os.environ["GOOGLE_API_KEY"] = str(os.getenv("GOOGLE_API_KEY"))
 genai.configure(api_key=os.environ['GOOGLE_API_KEY'])
-model = genai.GenerativeModel("gemini-1.5-flash-002")
-model = genai.GenerativeModel("gemini-2.0-flash-exp")
-
+google_model_thinking = genai.GenerativeModel("gemini-2.0-flash-thinking-exp")
+google_model = genai.GenerativeModel("gemini-2.0-flash-exp")
 
 def genai_api(messages: list[dict] | str, file_paths: list | str = []) -> str:
-
+    # TODO:  model: Literal['google', 'google_flash', 'google_thinking'] = 'google_flash'
     if type(messages) == str:
         user_message = messages
         formatted_history = []
@@ -178,8 +177,8 @@ def genai_api(messages: list[dict] | str, file_paths: list | str = []) -> str:
     if type(file_paths) == str:
         file_paths = [file_paths]
 
-    
-    chat = model.start_chat(history=formatted_history)
+
+    chat = google_model.start_chat(history=formatted_history)
 
     files = []
     for file_path in file_paths:
@@ -200,8 +199,8 @@ def genai_api(messages: list[dict] | str, file_paths: list | str = []) -> str:
 
 
 # =========================< LLM API >=========================
-def llm_api(messages: list[dict], files: str | list = [], provider: Literal['groq', 'google'] = 'groq'):
-    
+def llm_api(messages: list[dict], files: str | list = [], provider: Literal['groq', 'google'] = 'google'):
+    # provider replace to model
     if type(messages) == str:
         messages = [{'role': 'user', 'content': messages}]
 
@@ -704,22 +703,12 @@ def latex_expression_to_png(expression: str, size: int = 400):
         return None
     
 
-def latex_to_pdf(content):
-    preamble = '''\\documentclass[a4paper]{article}
-\\usepackage[english,russian]{babel}
-\\usepackage{amsmath, amssymb}
-\\usepackage{geometry}
-\\geometry{
-    a4paper,
-	left=15mm, 
-	right=15mm, 
-	top=15mm, 
-	bottom=15mm}
-\\pagestyle{empty}
-\\begin{document}
-'''
+def latex_to_pdf(content: str, recursion_turn: int = 1) -> str | None:
 
-    link = 'https://latexonline.cc/compile?text=' + quote(preamble + content + '\\end{document}')
+    if recursion_turn > 3:
+        return None
+    
+    link = 'https://latexonline.cc/compile?text=' + quote(content)
     response = requests.get(link)
     file_name = hashlib.md5(content.encode()).hexdigest() + '.pdf'
     if response.status_code == 200:
@@ -728,6 +717,34 @@ def latex_to_pdf(content):
         log(content)
         return file_name
     else:
-        log(content, error=True)
-        return None
+        log(f'Error: {response.text}, recursion_turn: {recursion_turn}, content: {content}', error=True)
+        prompt = 'You are a LaTeX expert. You have to fix the LaTeX Document so that the error does not occur (if the error is very unclear, you can remove the part of the text with the error). '\
+                 'Your whole reply will go in the reply, so you can write your thoughts in the comments (after %), nobody will see them. '\
+                f'Error: {response.text}\n\nText:{content}'
+        answer = genai_api(prompt)
+        if answer.startswith('```latex'):
+            answer = answer[8:-4]
+        elif answer.startswith('```'):
+            answer = answer[3:-4]
+        log(f'Ask llm: {answer}. ')
+        return latex_to_pdf(answer)
     
+
+def text_to_pdf_document(text: str):
+    
+    prompt = "You are a LaTeX expert. Your task is to convert this text in MarkDown markup into a LaTeX document. You don't have to cause an error.  "\
+             "Tips: use in preambula \\documentclass[a4paper]{article}, \\usepackage[english,russian]{babel}, \\usepackage[utf8]{inputenc}, \\usepackage{geometry}, \\geometry{a4paper, left=15mm, right=15mm, top=15mm, bottom=17mm}, \\usepackage{amsmath, amssymb}. You can add your own."\
+             "You encapsulate EACH math equation IN $$ and use LaTeX. If something like V2 or T₃ occurs in the text, convert it to V_2 and T_3, Δ to \\Delta and etc. For bold (**) use \\textbf{}, for bullet list use itemize and so on. "\
+            f"Text:\n{text}"
+    
+    
+    answer = genai_api(prompt)
+    
+    if answer.startswith('```latex'):
+        answer = answer[8:-4]
+    elif answer.startswith('```'):
+        answer = answer[3:-4]
+
+    file_name = latex_to_pdf(answer)
+    log(f'text: {text}, answer: {answer}', error=not bool(file_name))
+    return file_name
