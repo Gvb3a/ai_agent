@@ -10,13 +10,13 @@ import re
 
 
 if __name__ == '__main__' or '.' not in __name__:
-    from api import speech_recognition, llm_api, files_to_text, code_interpreter
+    from api import speech_recognition, llm_api, files_to_text, code_interpreter, detect_language, translate
     from llm_answer import system_prompt, llm_select_tool, llm_use_tool
     from sql import sql_check_user, sql_select_history, sql_insert_message
     from log import log
     from magic import markdown_to_html
 else:
-    from .api import speech_recognition, llm_api, files_to_text, code_interpreter
+    from .api import speech_recognition, llm_api, files_to_text, code_interpreter, detect_language, translate
     from .llm_answer import system_prompt, llm_select_tool, llm_use_tool
     from .sql import sql_check_user, sql_select_history, sql_insert_message
     from .log import log
@@ -169,11 +169,20 @@ async def message_handler(message: Message, state: FSMContext) -> None:
             print('media group error', e)
 
 
+    inline_keyboard = []
     if '```python' in answer:
-        inline_button = InlineKeyboardButton(text='Run code ➡', callback_data='run_last_code')
-        inline_keyboard = InlineKeyboardMarkup(inline_keyboard=[[inline_button]])
-    else:
+        inline_keyboard.append(InlineKeyboardButton(text='Run code ➡', callback_data='run_code_in_message'))
+    user_text_language = detect_language(text)
+    if detect_language(answer) != user_text_language:
+        inline_keyboard.append(InlineKeyboardButton(text='Translate 📖', callback_data=f'translate_message_{user_text_language}'))
+
+
+
+    if inline_keyboard == []:
         inline_keyboard = None
+    else:
+        inline_keyboard = InlineKeyboardMarkup(inline_keyboard=[inline_keyboard])
+
 
     while answer:
         try:
@@ -198,8 +207,20 @@ async def message_handler(message: Message, state: FSMContext) -> None:
     await state.clear()
 
 
-@dp.callback_query(F.data == 'run_last_code')
-async def callback_run_last_code(callback: CallbackQuery):
+@dp.callback_query(F.data[:17] == 'translate_message')
+async def callback_translate_message(callback: CallbackQuery):
+    text = callback.message.md_text
+    language_code = callback.data.split('_')[-1]
+    text = re.sub(r'\\([_*()[\]{}#+\-!.<>|=`\\])', r'\1', text)
+    try:
+        await callback.message.answer(translate(text, language_code), parse_mode='Markdown')
+    except:
+        await callback.message.answer(translate(text, language_code))
+    await callback.answer()
+
+
+@dp.callback_query(F.data == 'run_code_in_message')
+async def callback_run_code_in_message(callback: CallbackQuery):
     text = callback.message.md_text
 
     try:
@@ -213,7 +234,7 @@ async def callback_run_last_code(callback: CallbackQuery):
         log(f'User: {callback.from_user.full_name}, message: {text}', error=True)
         await callback.answer()
         return
-    print(code)
+    
     str_result, image = code_interpreter(code)
 
     if str_result.replace('\n', '') == '':

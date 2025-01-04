@@ -382,6 +382,11 @@ def detect_language(text: str) -> str:  # TODO: google and ggcs translator
         return 'en'
     
 
+def translate(text: str, target_language: str = 'en', source_language: str = 'auto') -> str:
+    translated_text = GoogleTranslator(source=source_language, target=target_language).translate(text)
+    return translated_text
+
+
 def parsing(links: str | list) -> str:
     start_time = datetime.now() 
     try:
@@ -697,7 +702,7 @@ def latex_expression_to_png(expression: str, size: int = 400):
         with open(file_name, 'wb') as f:
             f.write(response.content)
         log(expression)
-        return file_name
+        return f'A rendering of the expression {expression} will be added to the answer', [file_name]
     else:
         log(expression, error=True)
         return None
