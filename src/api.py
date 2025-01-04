@@ -11,6 +11,8 @@ from typing import Literal
 from colorama import Fore, Style, init
 import asyncio
 import base64
+import hashlib
+from urllib.parse import quote
 
 if __name__ == '__main__' or '.' not in __name__:
     from log import log
@@ -136,7 +138,7 @@ def merges_pdf(files: list[str]) -> str:
 
 
 # =========================< GROQ API >=========================
-def groq_api(messages: list, model: str = 'llama-3.1-70b-versatile') -> str:
+def groq_api(messages: list, model: str = 'llama-3.3-70b-versatile') -> str:
     # https://console.groq.com/docs/models
     response = groq_client.chat.completions.create(
         messages=messages,
@@ -199,6 +201,9 @@ def genai_api(messages: list[dict] | str, file_paths: list | str = []) -> str:
 
 # =========================< LLM API >=========================
 def llm_api(messages: list[dict], files: str | list = [], provider: Literal['groq', 'google'] = 'groq'):
+    
+    if type(messages) == str:
+        messages = [{'role': 'user', 'content': messages}]
 
     if type(files) == str:
         files = [files]
@@ -683,3 +688,46 @@ def code_interpreter(code: str):
         log(f'{result}, {image_file_name}')
         return result, image_file_name
 
+
+def latex_expression_to_png(expression: str, size: int = 400):
+    expression = expression.strip('$')
+    link = 'https://latex.codecogs.com/png.image?\dpi{' + str(size) + '}' + expression.replace(' ', '%20')
+    response = requests.get(link)
+    file_name = hashlib.md5(expression.encode()).hexdigest() + '.png'
+    if response.status_code == 200:
+        with open(file_name, 'wb') as f:
+            f.write(response.content)
+        log(expression)
+        return file_name
+    else:
+        log(expression, error=True)
+        return None
+    
+
+def latex_to_pdf(content):
+    preamble = '''\\documentclass[a4paper]{article}
+\\usepackage[english,russian]{babel}
+\\usepackage{amsmath, amssymb}
+\\usepackage{geometry}
+\\geometry{
+    a4paper,
+	left=15mm, 
+	right=15mm, 
+	top=15mm, 
+	bottom=15mm}
+\\pagestyle{empty}
+\\begin{document}
+'''
+
+    link = 'https://latexonline.cc/compile?text=' + quote(preamble + content + '\\end{document}')
+    response = requests.get(link)
+    file_name = hashlib.md5(content.encode()).hexdigest() + '.pdf'
+    if response.status_code == 200:
+        with open(file_name, 'wb') as f:
+            f.write(response.content)
+        log(content)
+        return file_name
+    else:
+        log(content, error=True)
+        return None
+    
