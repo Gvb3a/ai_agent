@@ -35,16 +35,13 @@ Then run `bot.py`
 
 - [ ] Local llm wia hugging face and ollama
 - [ ] Start and Help message
-- [ ] Fix photo send
 - [ ] Integration with Todoist, Calendar, Gmail, Notion
 - [ ] Memory as in ChatGPT
 - [ ] Embedings and vector datebase
 - [ ] Picture generate
 - [ ] ElevenLabs
 - [ ] Working with multiple files (merge pdf) and sending files
-- [ ] Add [Code Interpreting](https://e2b.dev/P)
-- [ ] Text to Plot
-- [ ] Upgrate tavily (search)
+- [ ] Upgrate `google_full_search` and `wolfram_full_answer`
 - [ ] See what can be taken from https://github.com/theurs/tb1
 - [ ] [Gpt Researcher](https://github.com/assafelovic/gpt-researcher)
   

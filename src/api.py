@@ -693,9 +693,10 @@ def code_interpreter(code: str):
         return result, image_file_name
 
 
+# =========================< LATEX >=========================
 def latex_expression_to_png(expression: str, size: int = 400):
     expression = expression.strip('$')
-    link = 'https://latex.codecogs.com/png.image?\dpi{' + str(size) + '}' + expression.replace(' ', '%20')
+    link = 'https://latex.codecogs.com/png.image?\\dpi{' + str(size) + '}' + expression.replace(' ', '%20')
     response = requests.get(link)
     file_name = hashlib.md5(expression.encode()).hexdigest() + '.png'
     if response.status_code == 200:
@@ -710,6 +711,16 @@ def latex_expression_to_png(expression: str, size: int = 400):
 
 def latex_to_pdf(content: str, recursion_turn: int = 1) -> str | None:
 
+
+    if '\\begin{document}' not in content:
+        preambula = '''\\documentclass[a4paper]{article}
+\\usepackage[english,russian]{babel}
+\\usepackage[utf8]{inputenc}
+\\usepackage{geometry}
+\\geometry{a4paper, left=15mm, right=15mm, top=15mm, bottom=17mm}
+\\usepackage{amsmath, amssymb, amsfonts}
+'''
+        content = '{preambula}\\begin{document}\n' + content + '\n\\end{document}'
     if recursion_turn > 3:
         return None
     
@@ -726,7 +737,7 @@ def latex_to_pdf(content: str, recursion_turn: int = 1) -> str | None:
         prompt = 'You are a LaTeX expert. You have to fix the LaTeX Document so that the error does not occur (if the error is very unclear, you can remove the part of the text with the error). '\
                  'Your whole reply will go in the reply, so you can write your thoughts in the comments (after %), nobody will see them. '\
                 f'Error: {response.text}\n\nText:{content}'
-        answer = genai_api(prompt)
+        answer = llm_api(prompt, provider='google')
         if answer.startswith('```latex'):
             answer = answer[8:-4]
         elif answer.startswith('```'):
@@ -743,7 +754,7 @@ def text_to_pdf_document(text: str):
             f"Text:\n{text}"
     
     
-    answer = genai_api(prompt)
+    answer = llm_api(prompt, provider='google').strip()
     
     if answer.startswith('```latex'):
         answer = answer[8:-4]
@@ -753,3 +764,7 @@ def text_to_pdf_document(text: str):
     file_name = latex_to_pdf(answer)
     log(f'text: {text}, answer: {answer}', error=not bool(file_name))
     return file_name
+
+
+
+# =========================< ELEVEN LABS (TTS) >=========================

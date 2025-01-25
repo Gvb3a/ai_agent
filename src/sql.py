@@ -2,17 +2,22 @@ import sqlite3
 from typing import Literal
 from datetime import datetime, timezone
 from log import log
+from hashlib import sha256
+
+
+def text_to_hash(text: str) -> str:
+    return sha256(text.encode()).hexdigest()[:32]
 
 def utc_time():
-    # Get the current time in UTC + 0
+    '''Get the current time in UTC + 0. Format: %Y.%m.%d %H:%M:%S'''
     time = datetime.now(timezone.utc)
     return time.strftime('%Y.%m.%d %H:%M:%S')
 
 def sql_launch():
+    '''Creates tables if they do not exist'''
     connection = sqlite3.connect('assistant.db') 
     cursor = connection.cursor()
     
-    # is used to store user and LLM messages to provide context for responses.
     # TODO: files
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS Messages (
@@ -20,11 +25,11 @@ def sql_launch():
         user_id INT,
         role TEXT,
         content TEXT,
-        time TEXT
+        time TEXT,
+        message_hash TEXT
         )
         ''')
 
-    # TODO: individual settings
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS Users (
         telegram_name TEXT,
@@ -43,6 +48,7 @@ def sql_launch():
 
 
 def sql_check_user(telegram_name: str, telegram_username: str, user_id: int):
+    '''Adds a new user to the database if they do not exist. Otherways updates the last_message_time and number_of_messages. Nessory before each request'''
     connection = sqlite3.connect('assistant.db')
     cursor = connection.cursor()
     
@@ -59,8 +65,8 @@ def sql_check_user(telegram_name: str, telegram_username: str, user_id: int):
     connection.close()
 
 
-def sql_select_history(id: int, n: int | str = 5):
-    ''
+def sql_select_history(id: int, n: int | str = 7):
+    '''Returns the last n messages from the database by id. Format [{'role' : ..., 'content': ...}, ...]'''
     connection = sqlite3.connect('assistant.db') 
     cursor = connection.cursor()
 
@@ -70,17 +76,29 @@ def sql_select_history(id: int, n: int | str = 5):
     return [{'role': i[0], 'content': i[1]} for i in role_content]
 
 
-# TODO: clear context
 def sql_insert_message(user_id: int, role: Literal['user', 'assistant', 'system'], content: str):
+    '''Add message to database. Auto-generate user_name, time and hash'''
     connection = sqlite3.connect('assistant.db') 
     cursor = connection.cursor()
 
     user_name = cursor.execute('SELECT telegram_name FROM Users WHERE user_id = ?', (user_id,)).fetchone()[0]
 
-    cursor.execute('INSERT INTO Messages (user_name, user_id, role, content, time) VALUES (?, ?, ?, ?, ?)', (user_name, user_id, role, content, utc_time()))
+    hash = text_to_hash(content)
+    cursor.execute('INSERT INTO Messages (user_name, user_id, role, content, time, message_hash) VALUES (?, ?, ?, ?, ?, ?)', (user_name, user_id, role, content, utc_time(), hash))
 
     connection.commit()
     connection.close()
+
+
+def sql_get_message_by_hash(message_hash: str):
+    '''Returns the message by hash'''
+    connection = sqlite3.connect('assistant.db')
+    cursor = connection.cursor()
+
+    content = cursor.execute(f"SELECT content FROM Messages WHERE message_hash = '{message_hash}'").fetchone()[0]
+    connection.close()
+
+    return content
 
 
 sql_launch()

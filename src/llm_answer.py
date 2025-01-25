@@ -11,18 +11,19 @@ else:
     from .log import log
 
 
-system_prompt = '''You are a helpful ai agent. You can use WolframALpha, Google, Search image, Summarize YouTube videos. You are a Telegram bot providing the best answers. User does not see system message.
+system_prompt = '''You are a helpful ai agent with tools. You can use WolframALpha, Google, Search image, Summarize YouTube videos, Run python code and Compilate LaTeX dpocument. You are a Telegram bot providing the best answers. User does not see system message. Don't be afraid to use LaTeX in $$, they will all compile
 
-To run the code, you must write it in ```python<code>``` and ask the user to click the button below the message to execute the. Only the first block of code will be executed. Available matplotlib'''
+To run the code, you must write it in ```python<code>``` and ask the user to click the button below the message to execute the. Only the first block of code will be executed. Available matplotlib. Write python code ONLY if this necessary. If you write a LaTeX document (in ```latex<document>```) you should also ask the user to compile it and he will get a pdf.'''
 
 
-functions = {  # TODO: separate functions for files.
+# TODO: funct that works with files
+functions = { 
     'wolfram_short_answer': {
         'function': wolfram_short_answer,
-        'description': 'For complex calculations, solving difficult equations and up-to-date information (e.g., weather, exchange rates, today date, time and etc). Не используй для обычного решения ',
+        'description': 'For complex calculations, solving difficult equations and up-to-date information (e.g., weather, exchange rates, today date, time and etc). Don\'t use it for a conventional solution',
         'output_file': False
     },
-    'wolfram_full_answer': {  # TODO: Improve prompt
+    'wolfram_full_answer': { 
         'function': wolfram_full_answer,
         'description': 'Full Wolfram Alpha answer with pictures and a lot of information',
         'output_file': True
@@ -32,7 +33,7 @@ functions = {  # TODO: separate functions for files.
         'description': 'Use if you need to get revelant information from the internet. It\'s important to ask the question well (e. g "Who won on 2024 Olympic" -> "Which country won the most medals 2024 olympics")',
         'output_file': False
     },
-    'google_full_answer': {
+    'google_full_answer': {   # TODO
         'function': google_full_answer,
         'description': 'For queries needing full-text information from the internet (e.g., entire lyrics or detailed articles). Don\'t use it for information you know.',
         'output_file': False
@@ -49,7 +50,7 @@ functions = {  # TODO: separate functions for files.
     },
     'latex_expression_to_png': {
         'function': latex_expression_to_png,
-        'description': 'Converts LaTeX expressions (what\'s in$$$) to png. Enter only LaTeX expression in input',
+        'description': 'Converts LaTeX expressions (what\'s in $$) to png. Enter only LaTeX expression in input',
         'output_file': True
     }
 }
@@ -66,7 +67,8 @@ Thought: You should always think about what to do. What the user wants to see, w
 <function_name>: <function_input>
 
 
-You can call multiple functions (unless the model herself is unable to answer), each time spelling out the names of the function and the query for it. You can call the same function multiple times, so don't be afraid to split questions into the same function. Don't forget to convert the queries, and also avoid obscene queries in functions. Use tools only when they are needed. You should not call functions during a normal conversation (or if the model can answer itself)
+You can call multiple functions (unless the model herself is unable to answer), each time spelling out the names of the function and the query for it. You can call the same function multiple times, so don't be afraid to split questions into the same function. Don't forget to convert the queries, and also avoid obscene queries in functions. Use tools only when they are needed. You should not call functions during a normal conversation (or if the model can answer itself).
+USE TOOLS ONLY IF NECESSARY.
 
 You'll be given a message history."""
 

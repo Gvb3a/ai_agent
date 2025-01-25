@@ -1,16 +1,8 @@
-.env
-.idea
-.devdbrc
-.git
+.*
 __pycache__/
-.venv/
-.vscode/
 
-assistant.db
-client_secret.json
-token.pickle
-token_*.json
 
-tts_*
-*.ipynb
+*.db
+*.json
+*.pickle
 *.log
