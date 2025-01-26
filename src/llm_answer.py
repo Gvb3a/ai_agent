@@ -43,14 +43,14 @@ functions = {
         'description': 'Pictures that pop up when you search. Use when the user asks to find a picture',
         'output_file': True
     },
-    'youtube_sum': {
+    'youtube_sum': {   # TODO: ask que
         'function': youtube_sum,
         'description': 'Summarizes YouTube videos. Enter link in input',
         'output_file': False
     },
     'latex_expression_to_png': {
         'function': latex_expression_to_png,
-        'description': 'Converts LaTeX expressions (what\'s in $$) to png. Enter only LaTeX expression in input',
+        'description': 'Converts LaTeX expressions (what\'s in $$) to png. Enter only LaTeX expression in input. When user says compile this expression then use this tool',
         'output_file': True
     }
 }

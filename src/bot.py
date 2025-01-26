@@ -53,6 +53,31 @@ async def start_command_handler(message: Message) -> None:
     log(f'{message.from_user.full_name}({message.from_user.username})')
 
 
+help_message = '''[Code source](https://github.com/Gvb3a/assistant)\n\
+
+Model: `gemini-2.0-flash-exp` or `llama-3.3-70b`
+
+Tools: 
+ • *WolframAlpha*: An incredibly powerful calculator. It can solve any equation, calculate huge numbers, give up-to-date information and much more. With `wolfram_full_answer` you and the model will be presented with the full WolframAlpha answer. For simple request-response will use `wolfram_alpha_short_answer`.
+ • *Google*: The model can access the internet to get up-to-date information. `google_short_answer` gives a short and quick answer to the model, and `google_full_answer` starts a process in which the model reads 3 links in Google. There is also an option to search for images with `google_images`
+ • *LaTeX*: LaTeX is a language for mathematical expressions. The bot automatically converts it from unreadable text into understandable text in messages, but with `latex_expression_to_png` you can get a picture of the expression. Just ask to compile the expression into a picture. \
+The bot also supports the compilation of LaTeX documents. If the message contains latex code, a button with the inscription `Render latex` will appear below the message. After clicking, you will be sent a pdf file
+ • *Python*: You can run python code that the agent will write. Just click the corresponding button. Running the code greatly expands the capabilities of llm for issuing answers.
+ • *Translate*: If the model has answered in a language other than yours, you will be able to translate the answer. This will allow you to speak unpopular languages ​​+ it is no secret that the model thinks better in English.
+ • *Youtube*: With `youtube_sum` you can send a link to a YouTube video and he will retell it to you. In the future, you can ask questions
+'''
+@dp.message(Command('help'))
+async def help_command_handler(message: Message) -> None:
+    user_language_code = message.from_user.language_code
+    if user_language_code != 'en':
+        inline_keyboard= [InlineKeyboardButton(text=f'Translate to {user_language_code} 📖', callback_data=f'translate_help_message-{user_language_code}')]
+        inline_keyboard = InlineKeyboardMarkup(inline_keyboard=[inline_keyboard])
+    else:
+        inline_keyboard = None
+
+    await message.answer(help_message, parse_mode='Markdown', disable_web_page_preview=True, reply_markup=inline_keyboard)
+    log(f'{message.from_user.full_name}({message.from_user.username})')
+
 @dp.message(StateFilter(default_state))
 async def message_handler(message: Message, state: FSMContext) -> None:
 
@@ -196,7 +221,11 @@ async def message_handler(message: Message, state: FSMContext) -> None:
     user_text_language = detect_language(text)
     answer_text_language = detect_language(answer)
     if answer_text_language != user_text_language:
-        inline_keyboard.append(InlineKeyboardButton(text='Translate 📖', callback_data=f'translate_message-{message_hash}-{user_text_language}'))
+        inline_keyboard.append(InlineKeyboardButton(text=f'Translate to {user_text_language} 📖', callback_data=f'translate_message-{message_hash}-{user_text_language}'))
+
+    user_language_code = message.from_user.language_code 
+    if user_language_code != user_text_language:
+        inline_keyboard.append(InlineKeyboardButton(text=f'Translate to {user_language_code} 📖', callback_data=f'translate_message-{message_hash}-{message.from_user.language_code}'))
 
     if inline_keyboard == []:
         inline_keyboard = None
@@ -315,6 +344,20 @@ async def callback_render_latex(callback: CallbackQuery):
     sql_insert_message(user_id=callback.from_user.id, role='system', content=f'latex rendering result: {bool(file_name)}')
     await callback.answer()
     
+
+@dp.callback_query(F.data[:22] == 'translate_help_message')
+async def callback_render_latex(callback: CallbackQuery):
+    language = callback.data.split('-')[1]
+    translated = translate(text=help_message, target_language=language, source_language='en')
+
+    log(f'User: {callback.from_user.full_name}, language: {language}')
+
+    try:
+        await callback.message.answer(translated, parse_mode='Markdown')
+    except:
+        await callback.message.answer(translated)
+
+    await callback.answer()
 
 
 
