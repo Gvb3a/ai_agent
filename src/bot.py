@@ -64,7 +64,10 @@ Tools:
 The bot also supports the compilation of LaTeX documents. If the message contains latex code, a button with the inscription `Render latex` will appear below the message. After clicking, you will be sent a pdf file
  • *Python*: You can run python code that the agent will write. Just click the corresponding button. Running the code greatly expands the capabilities of llm for issuing answers.
  • *Translate*: If the model has answered in a language other than yours, you will be able to translate the answer. This will allow you to speak unpopular languages ​​+ it is no secret that the model thinks better in English.
- • *Youtube*: With `youtube_sum` you can send a link to a YouTube video and he will retell it to you. In the future, you can ask questions
+ • *Youtube*: With `youtube_sum` you can send a link to a YouTube video and he will retell it to you. In the future, you can ask questions.
+ • *IMDB*: `imdb_api` will give the model an answer from the largest library of films. This will help to find out the year of release, actors, genres, ratings, reviews, etc. 
+
+Admin: @gvb3a
 '''
 @dp.message(Command('help'))
 async def help_command_handler(message: Message) -> None:
@@ -77,6 +80,26 @@ async def help_command_handler(message: Message) -> None:
 
     await message.answer(help_message, parse_mode='Markdown', disable_web_page_preview=True, reply_markup=inline_keyboard)
     log(f'{message.from_user.full_name}({message.from_user.username})')
+
+
+ADMIN_ID = os.getenv('ADMIN_ID')
+@dp.message(Command('log'))
+async def log_command_handler(message: Message) -> None:
+    if message.from_user.id == int(ADMIN_ID):
+        try:
+            await message.answer_document(FSInputFile('agent_log.log'))
+        except Exception as e:
+            await message.reply(f'Error: {e}')
+        log('Admin used /log command')
+    else:
+        log(f'{message.from_user.full_name}({message.from_user.id}) try use /log command')
+        await message.reply('You are not an admin')
+
+
+@dp.message(StateFilter(FSM.processing))
+async def processing_message_handler(message: Message, state: FSMContext) -> None:
+    await message.reply('The request is being processed. Please wait. If it\'s stuck, write to the [admin](@gvb3a)')
+
 
 @dp.message(StateFilter(default_state))
 async def message_handler(message: Message, state: FSMContext) -> None:

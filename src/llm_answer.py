@@ -3,15 +3,15 @@ from typing import Literal
 import asyncio
 
 if __name__ == '__main__' or '.' not in __name__:
-    from api import llm_api, calculator, wolfram_short_answer, wolfram_full_answer, google_short_answer, google_full_answer, google_image, youtube_sum, latex_expression_to_png
+    from api import llm_api, calculator, wolfram_short_answer, wolfram_full_answer, google_short_answer, google_full_answer, google_image, youtube_sum, latex_expression_to_png, imdb_api
     from log import log
 
 else:
-    from .api import llm_api, calculator, wolfram_short_answer, wolfram_full_answer, google_short_answer, google_full_answer, google_image, youtube_sum, latex_expression_to_png
+    from .api import llm_api, calculator, wolfram_short_answer, wolfram_full_answer, google_short_answer, google_full_answer, google_image, youtube_sum, latex_expression_to_png, imdb_api
     from .log import log
 
 
-system_prompt = '''You are a helpful ai agent with tools. You can use WolframALpha, Google, Search image, Summarize YouTube videos, Run python code and Compilate LaTeX dpocument. You are a Telegram bot providing the best answers. User does not see system message. Don't be afraid to use LaTeX in $$, they will all compile
+system_prompt = '''You are a helpful ai agent with tools. You can use WolframALpha, Google, Search image, Summarize YouTube videos, Run python code, search in IMDB and Compilate LaTeX dpocument. You are a Telegram bot providing the best answers. User does not see system message. Don't be afraid to use LaTeX in $$, they will all compile
 
 To run the code, you must write it in ```python<code>``` and ask the user to click the button below the message to execute the. Only the first block of code will be executed. Available matplotlib. Write python code ONLY if this necessary. If you write a LaTeX document (in ```latex<document>```) you should also ask the user to compile it and he will get a pdf.'''
 
@@ -20,7 +20,7 @@ To run the code, you must write it in ```python<code>``` and ask the user to cli
 functions = { 
     'wolfram_short_answer': {
         'function': wolfram_short_answer,
-        'description': 'For complex calculations, solving difficult equations and up-to-date information (e.g., weather, exchange rates, today date, time and etc). Don\'t use it for a conventional solution',
+        'description': 'For complex calculations, solving difficult equations and up-to-date information (e.g., weather, exchange rates, today date, time and etc). Do not use for solving physics problems and etc',
         'output_file': False
     },
     'wolfram_full_answer': { 
@@ -32,12 +32,7 @@ functions = {
         'function': google_short_answer,
         'description': 'Use if you need to get revelant information from the internet. It\'s important to ask the question well (e. g "Who won on 2024 Olympic" -> "Which country won the most medals 2024 olympics")',
         'output_file': False
-    },
-    'google_full_answer': {   # TODO
-        'function': google_full_answer,
-        'description': 'For queries needing full-text information from the internet (e.g., entire lyrics or detailed articles). Don\'t use it for information you know.',
-        'output_file': False
-    },
+    }, # TODO: google_full_answer
     'google_image': {
         'function': google_image,
         'description': 'Pictures that pop up when you search. Use when the user asks to find a picture',
@@ -51,6 +46,11 @@ functions = {
     'latex_expression_to_png': {
         'function': latex_expression_to_png,
         'description': 'Converts LaTeX expressions (what\'s in $$) to png. Enter only LaTeX expression in input. When user says compile this expression then use this tool',
+        'output_file': True
+    },
+    'imdb_api': {
+        'function': imdb_api,
+        'description': 'Get information about movies and series. Recomended when user asks about movies. Enter movie name in input',
         'output_file': True
     }
 }
@@ -68,7 +68,7 @@ Thought: You should always think about what to do. What the user wants to see, w
 
 
 You can call multiple functions (unless the model herself is unable to answer), each time spelling out the names of the function and the query for it. You can call the same function multiple times, so don't be afraid to split questions into the same function. Don't forget to convert the queries, and also avoid obscene queries in functions. Use tools only when they are needed. You should not call functions during a normal conversation (or if the model can answer itself).
-USE TOOLS ONLY IF NECESSARY.
+USE TOOLS ONLY IF NECESSARY. If you see that, as in previous messages, function calls are ineffective (for example, you write the whole task in wolfram_short_answer and it doesn't understand you), then you don't need to continue calling functions. If you don't call anything, then that's okay.
 
 You'll be given a message history."""
 

@@ -1,5 +1,6 @@
 import os
 import requests
+import json
 import re
 from inspect import stack
 from urllib.parse import quote
@@ -12,6 +13,7 @@ from colorama import Fore, Style, init
 import asyncio
 import base64
 import hashlib
+import PIL.Image
 from urllib.parse import quote
 
 if __name__ == '__main__' or '.' not in __name__:
@@ -150,7 +152,6 @@ def groq_api(messages: list, model: str = 'llama-3.3-70b-versatile') -> str:
 
 # =========================< GOOGLE API >=========================
 import google.generativeai as genai
-import PIL.Image
 
 os.environ["GOOGLE_API_KEY"] = str(os.getenv("GOOGLE_API_KEY"))
 genai.configure(api_key=os.environ['GOOGLE_API_KEY'])
@@ -226,9 +227,6 @@ def llm_api(messages: list[dict], files: str | list = [], provider: Literal['gro
 
 
 # =========================< WOLFRAM ALPHA >=========================
-import requests
-import re
-
 WOLFRAM_SIMPLE_API = os.getenv('WOLFRAM_SIMPLE_API_KEY')
 WOLFRAM_SHOW_STEPS_RESULT = os.getenv('WOLFRAM_SHOW_STEPS_RESULT')
 
@@ -365,7 +363,6 @@ def wolfram_full_answer(text: str):  # TODO: async + wolfram_simple_api
 
 
 # =========================< TAVILY AND DUCKDUCKGO (INTERNERT) >=========================
-# internetfrom tavily import TavilyClient
 from tavily import TavilyClient
 from duckduckgo_search import DDGS
 from deep_translator import GoogleTranslator, single_detection
@@ -519,7 +516,9 @@ def google_news(text: str):
 import aiohttp
 import asyncio
 
-async def download_image(session, url, save_path):
+async def async_download_image(session, url, save_path = None):
+    if save_path is None:
+        save_path = url.split('/')[-1]
     try:
         async with session.get(url) as response:
             if response.status == 200:
@@ -540,19 +539,19 @@ async def download_images(image_urls, save_dir):
         for i, url in enumerate(image_urls):
             try:
                 save_path = os.path.join(save_dir, f"image_{i + 1}.jpg")
-                tasks.append(download_image(session, url, save_path))
+                tasks.append(async_download_image(session, url, save_path))
             except:
                 pass
         
         return await asyncio.gather(*tasks)
 
 
-async def google_image(text, max_results=9, download_image=True):
+async def google_image(text, max_results=9, download_images_or_not=True):
     urls = DDGS_images(text, max_results=max_results)
     start_time = datetime.now()
     
 
-    if not download_image:
+    if not download_images_or_not:
         log(urls)
         return f'google_image: The {len(urls)} of images on the {text} query will be prefixed to your response', urls
 
@@ -657,8 +656,8 @@ def youtube_sum(link: str, question: str | None = None, language: str = 'en') ->
         return f'Error({e}). Most like too much text or a completely incomprehensible error that cannot be fixed (or subtitles are not available). Tell the user to try again later'
 
 
-# =========================< CODE INTERPRETER (eb2) >=========================
 
+# =========================< CODE INTERPRETER (eb2) >=========================
 from e2b_code_interpreter import Sandbox
 
 def code_interpreter(code: str):
@@ -720,7 +719,7 @@ def latex_to_pdf(content: str, recursion_turn: int = 1) -> str | None:
 \\geometry{a4paper, left=15mm, right=15mm, top=15mm, bottom=17mm}
 \\usepackage{amsmath, amssymb, amsfonts}
 '''
-        content = '{preambula}\\begin{document}\n' + content + '\n\\end{document}'
+        content = preambula + '\\begin{document}\n' + content + '\n\\end{document}'
     if recursion_turn > 3:
         return None
     
@@ -743,7 +742,7 @@ def latex_to_pdf(content: str, recursion_turn: int = 1) -> str | None:
         elif answer.startswith('```'):
             answer = answer[3:-4]
         log(f'Ask llm: {answer}. ')
-        return latex_to_pdf(answer)
+        return latex_to_pdf(answer, recursion_turn-1)
     
 
 def text_to_pdf_document(text: str):
@@ -767,4 +766,52 @@ def text_to_pdf_document(text: str):
 
 
 
-# =========================< ELEVEN LABS (TTS) >=========================
+# =========================< IMDB >=========================
+from PyMovieDb import IMDB
+imdb = IMDB()
+
+
+def imdb_search(title):
+    responce_json = imdb.search(title)
+    responce_dict = json.loads(responce_json)
+    result = responce_dict['results']
+    return result
+
+
+
+def imdb_get_film_by_id(imdb_id: str, download_image_or_not=True) -> tuple[str, list[str]]:
+    responce_json = imdb.get_by_id(imdb_id)
+    responce_dict = json.loads(responce_json)
+
+    if responce_dict.get('status', False) == 404:
+        return 'Error', []
+    
+    result = dict(responce_dict)
+    
+    result['url'] = f'https://www.imdb.com/title/{imdb_id}'
+
+
+    if download_image_or_not:
+        poster = download_image(responce_dict['poster'])
+    else:
+        poster = responce_dict['poster']
+        
+    del result['poster']
+
+    result['review'] = responce_dict['review']['reviewBody']
+
+    result['rating'] = responce_dict['rating']['ratingValue']
+    result['ratingCount'] = responce_dict['rating']['ratingCount']
+
+    return result, [poster]
+
+
+def imdb_api(title):
+    search_result = imdb_search(title)
+    if len(search_result) == 0:
+        return 'Error'
+    
+    imdb_id = search_result[0]['id']
+    result, poster = imdb_get_film_by_id(imdb_id)
+
+    return result, poster
