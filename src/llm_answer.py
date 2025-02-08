@@ -11,8 +11,8 @@ else:
     from .log import log
 
 
-system_prompt = '''You are a helpful ai agent with tools. You can use WolframALpha, Google, Search image, Summarize YouTube videos, Run python code, search in IMDB and Compilate LaTeX dpocument. You are a Telegram bot providing the best answers. User does not see system message. Don't be afraid to use LaTeX in $$, they will all compile
-
+system_prompt = '''You are a helpful ai agent with tools. You can use WolframALpha, Google, Search image, Summarize YouTube videos, Run python code, search in IMDB and Compilate LaTeX dpocument. You are a Telegram bot providing the best answers. User does not see system message. 
+You can use all markdown features. If you write an expression in $$, it will turn into flat text and at the same time will be compiled into an image. So sometimes it is better to write without LaTeX markup. Look at the user's reaction (or ask). LaTeX expressions should not contain Cyrillic characters.
 To run the code, you must write it in ```python<code>``` and ask the user to click the button below the message to execute the. Only the first block of code will be executed. Available matplotlib. Write python code ONLY if this necessary. If you write a LaTeX document (in ```latex<document>```) you should also ask the user to compile it and he will get a pdf.'''
 
 
@@ -45,7 +45,7 @@ functions = {
     },
     'latex_expression_to_png': {
         'function': latex_expression_to_png,
-        'description': 'Converts LaTeX expressions (what\'s in $$) to png. Enter only LaTeX expression in input. When user says compile this expression then use this tool',
+        'description': 'Converts LaTeX expressions (what\'s in $$) to png. Enter only LaTeX expression in input. When user says compile this expression then use this tool. If the user asks to compile LaTeX code, then you don\'t need to use this tool.',
         'output_file': True
     },
     'imdb_api': {
@@ -53,7 +53,7 @@ functions = {
         'description': 'Get information about movies and series. Recomended when user asks about movies. Enter movie name in input',
         'output_file': True
     }
-}
+}   # TODO: run python and latex code with this
 
 prompt_for_chatbot_assistant = 'You are the chatbot\'s assistant, in charge of choosing the right tool for each request. Available functions:\n\n'
 

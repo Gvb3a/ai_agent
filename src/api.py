@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from bs4 import BeautifulSoup
 from typing import Literal
 from colorama import Fore, Style, init
+import aiohttp
 import asyncio
 import base64
 import hashlib
@@ -23,6 +24,68 @@ else:
 
 load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 path = '\\'.join(os.path.dirname(os.path.abspath(__file__)).split('\\')[:-1])
+
+
+
+def download_image(url: str) -> str:
+    'Downloads the image from the link. Returns the name of the downloaded image (name is time).'
+    response = requests.get(url)
+    file_name = f'{hash(url)}.png'
+    with open(file_name, 'wb') as file:
+        file.write(response.content)
+    log(file_name)
+    return file_name
+
+
+
+async def async_download_image(session, url, name):
+    save_path = name + '.png'
+    try:
+        async with session.get(url) as response:
+            if response.status == 200:
+                with open(save_path, 'wb') as file:
+                    file.write(await response.read())
+                return save_path
+            else:
+                log(f"Failed to download {url}: HTTP {response.status}", error=True)
+    except Exception as e:
+        log(f"Error downloading {url}: {e}", error=True)
+
+
+async def download_images(image_urls):
+    date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    name = hashlib.md5(date.encode()).hexdigest()
+    async with aiohttp.ClientSession() as session:
+        tasks = []
+        for i, url in enumerate(image_urls):
+            try:
+                tasks.append(async_download_image(session, url, f'{name} {i}'))
+            except:
+                pass
+        
+        return await asyncio.gather(*tasks)
+    
+
+def merge_pngs_vertically(image_paths: list) -> str:
+    output_path = hashlib.md5(datetime.now().strftime("%Y-%m-%d %H:%M:%S").encode()).hexdigest() + '.png'
+    images = [PIL.Image.open(img_path) for img_path in image_paths]
+
+    total_width = max(img.width for img in images)
+
+    total_height = sum(img.height for img in images)
+
+    new_image = PIL.Image.new("RGBA", (total_width, total_height), (255, 255, 255, 255))
+
+    current_height = 0
+
+    for img in images:
+        x_offset = (total_width - img.width) // 2
+        new_image.paste(img, (x_offset, current_height))
+        current_height += img.height
+
+    new_image.save(output_path)
+    return output_path
+    
 
 
 
@@ -282,16 +345,6 @@ def calculator(expression: str) -> str:
     except Exception as e:
         return f"Calculator error: {e}"
     
-    
-def download_image(url: str) -> str:
-    'Downloads the image from the link. Returns the name of the downloaded image (name is time).'
-    response = requests.get(url)
-    file_name = f'{hash(url)}.png'
-    with open(file_name, 'wb') as file:
-        file.write(response.content)
-    log(file_name)
-    return file_name
-
 
 def wolfram_short_answer_api(text: str) -> str:
     'https://products.wolframalpha.com/short-answers-api/documentation'
@@ -327,16 +380,6 @@ def wolfram_simple_api(text: str) -> str:
 def wolfram_short_answer(query: str) -> str:
     'Short answer from WolframAlpha'
     quick_answer = wolfram_short_answer_api(query)
-
-    if 'Wolfram|Alpha did not understand' in quick_answer:
-        log(f'Wolfram Alpha did not understand {query}. Ask llm', error=True)
-        messages = [
-            {'role': 'user', 'content': prompt_for_transform_query_wolfram},
-            {'role': 'user', 'content': query}
-        ]
-        query = groq_api(messages=messages, model='llama3-8b-8192')
-        quick_answer = wolfram_short_answer_api(query)
-
     log(quick_answer)
     return quick_answer
 
@@ -345,16 +388,6 @@ def wolfram_full_answer(text: str):  # TODO: async + wolfram_simple_api
     'returns the text version of the answer sheet, the image links and the answer sheet as a picture'
 
     full_answer, full_answer_images = wolfram_llm_api(text)
-
-    if 'Alpha did not understand your input' in full_answer:
-        log(f'Wolfram Alpha did not understand {text}. Ask llm', error=True)
-        messages = [
-            {'role': 'user', 'content': prompt_for_transform_query_wolfram},
-            {'role': 'user', 'content': text}
-        ]
-        text = groq_api(messages=messages, model='llama3-8b-8192')
-        
-        full_answer, full_answer_images = wolfram_llm_api(text)
         
     images = full_answer_images # TODO: [wolfram_simple_api(text)] + full_answer_images 
     log(f'{full_answer}, {images}')
@@ -513,39 +546,6 @@ def google_news(text: str):
 
 
 
-import aiohttp
-import asyncio
-
-async def async_download_image(session, url, save_path = None):
-    if save_path is None:
-        save_path = url.split('/')[-1]
-    try:
-        async with session.get(url) as response:
-            if response.status == 200:
-                with open(save_path, 'wb') as file:
-                    file.write(await response.read())
-                return save_path
-            else:
-                print(f"Failed to download {url}: HTTP {response.status}")
-    except Exception as e:
-        print(f"Error downloading {url}: {e}")
-
-
-async def download_images(image_urls, save_dir):
-    os.makedirs(save_dir, exist_ok=True)
-    
-    async with aiohttp.ClientSession() as session:
-        tasks = []
-        for i, url in enumerate(image_urls):
-            try:
-                save_path = os.path.join(save_dir, f"image_{i + 1}.jpg")
-                tasks.append(async_download_image(session, url, save_path))
-            except:
-                pass
-        
-        return await asyncio.gather(*tasks)
-
-
 async def google_image(text, max_results=9, download_images_or_not=True):
     urls = DDGS_images(text, max_results=max_results)
     start_time = datetime.now()
@@ -556,18 +556,15 @@ async def google_image(text, max_results=9, download_images_or_not=True):
         return f'google_image: The {len(urls)} of images on the {text} query will be prefixed to your response', urls
 
     
-    file_paths = await download_images(urls, 'images')
+    file_paths = await download_images(urls)
     
     log(f'{file_paths}, {datetime.now()-start_time}')
     return f'The {len(file_paths)} of the {text} query images will be appended to the response. Answer other user questions, tell information about the query, or say something like images found. DON\'T write anything like [Image of ...] or you\'ll be shut down.', file_paths
 
 
-
+# =========================< YOUTUBE >=========================
 from youtube_transcript_api import YouTubeTranscriptApi
 
-
-
-# =========================< YOUTUBE >=========================
 def transcript2text(transcript: list[dict], sep='\n'):
     result = []
     current_minute = -1
@@ -708,6 +705,28 @@ def latex_expression_to_png(expression: str, size: int = 400):
         return None
     
 
+
+
+
+async def async_expressions_to_png(expressions: list[str], size: int = 400):
+    try:
+        links = []
+        for expression in expressions:
+            if type(expression) != str:
+                l = [i for i in expression if i]
+                expression = l[0]
+            expression = expression.strip('$')
+            if len(expression) <= 3:
+                continue
+            link = 'https://latex.codecogs.com/png.image?\\dpi{' + str(size) + '}' + expression.replace(' ', '%20')
+            links.append(link)
+        log(f'expressions: {expressions}')
+        return await download_images(links)
+    except Exception as e:
+        log(f'error: {e}', error=True)
+        return []
+    
+
 def latex_to_pdf(content: str, recursion_turn: int = 1) -> str | None:
 
 
@@ -795,7 +814,7 @@ def imdb_get_film_by_id(imdb_id: str, download_image_or_not=True) -> tuple[str, 
         poster = download_image(responce_dict['poster'])
     else:
         poster = responce_dict['poster']
-        
+
     del result['poster']
 
     result['review'] = responce_dict['review']['reviewBody']
@@ -809,9 +828,11 @@ def imdb_get_film_by_id(imdb_id: str, download_image_or_not=True) -> tuple[str, 
 def imdb_api(title):
     search_result = imdb_search(title)
     if len(search_result) == 0:
+        log(f'No result for {title}', error=True)
         return 'Error'
     
     imdb_id = search_result[0]['id']
     result, poster = imdb_get_film_by_id(imdb_id)
 
+    log(f'Succes result for {title}')
     return result, poster

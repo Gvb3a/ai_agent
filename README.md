@@ -10,10 +10,12 @@ This telegram bot gives access to an ai agent that can search for information on
 - [DuckDuckGo](https://pypi.org/project/duckduckgo-search/) - A fast and free alternative to google (search links, pictures). [Official Site](https://duckduckgo.com/)
 - [Tavily](https://tavily.com/) - A very cool API to connect LLM to the web. Allows you to give context and also parse text from pages.
 - [YouTube Transcript API](https://pypi.org/project/youtube-transcript-api/) - Allows you to summarize youtube videos
+- [deep-translator](https://pypi.org/project/deep-translator/) - for free access to google translator. [Detect Language](https://detectlanguage.com/) for detect language
 - [Whisper](https://github.com/openai/whisper) - Free speech to text model (can run locally)
 - [e2b](https://e2b.dev/) - Python compilator
 - [latexonline.cc](https://latexonline.cc/) and [Equation Render](https://latex.codecogs.com/) as LaTeX compilator
 - [pythonanywhere](https://www.pythonanywhere.com/) - hosting
+- [PyMovieDb](https://github.com/itsmehemant7/PyMovieDb) - for free [IMDB](https://www.imdb.com/) api
 
 ### Lanch
 Download the necessary libraries (requirements.txt)\
@@ -34,7 +36,6 @@ Then run `bot.py`
 ### Todo:
 
 - [ ] Local llm wia hugging face and ollama
-- [ ] Start and Help message
 - [ ] Integration with Todoist, Calendar, Gmail, Notion
 - [ ] Memory as in ChatGPT
 - [ ] Embedings and vector datebase
@@ -43,7 +44,6 @@ Then run `bot.py`
 - [ ] Working with multiple files (merge pdf) and sending files
 - [ ] Upgrate `google_full_search` and `wolfram_full_answer`
 - [ ] See what can be taken from https://github.com/theurs/tb1
-- [ ] [Gpt Researcher](https://github.com/assafelovic/gpt-researcher)
   
 ---
 You can try it [here](https://t.me/personalised_ai_assistant_bot) if it is enabled

@@ -10,14 +10,14 @@ import re
 
 
 if __name__ == '__main__' or '.' not in __name__:
-    from api import speech_recognition, llm_api, files_to_text, code_interpreter, detect_language, translate, latex_to_pdf
+    from api import speech_recognition, llm_api, files_to_text, code_interpreter, detect_language, translate, latex_to_pdf, async_expressions_to_png, merge_pngs_vertically
     from llm_answer import system_prompt, llm_select_tool, llm_use_tool
     from sql import sql_check_user, sql_select_history, sql_insert_message, sql_get_message_by_hash
     from sql import utc_time, text_to_hash
     from log import log
     from magic import markdown_to_html
 else:
-    from .api import speech_recognition, llm_api, files_to_text, code_interpreter, detect_language, translate, latex_to_pdf
+    from .api import speech_recognition, llm_api, files_to_text, code_interpreter, detect_language, translate, latex_to_pdf, async_expressions_to_png, merge_pngs_vertically
     from .llm_answer import system_prompt, llm_select_tool, llm_use_tool
     from .sql import sql_check_user, sql_select_history, sql_insert_message, sql_get_message_by_hash
     from sql import utc_time, text_to_hash
@@ -211,11 +211,11 @@ async def message_handler(message: Message, state: FSMContext) -> None:
 
 
     # ======================= send files =======================
-    output_files = output_files[:9]
-    if output_files:
+    output_files_to_delete = output_files.copy()
+    while output_files:
         media_group = []
 
-        for file in output_files:
+        for file in output_files[:9]:
 
             if file.endswith('.png') or file.endswith('.jpg') or file.endswith('.jpeg') or file.endswith('.webp'):
                 media = FSInputFile(file)
@@ -230,6 +230,8 @@ async def message_handler(message: Message, state: FSMContext) -> None:
         except Exception as e:
             print('media group error', e)
 
+        output_files = output_files[9:]
+
 
     # ======================= buttons =======================
     inline_keyboard = []
@@ -240,6 +242,8 @@ async def message_handler(message: Message, state: FSMContext) -> None:
 
     if '```latex' in answer:
         inline_keyboard.append(InlineKeyboardButton(text='Render latex ➡', callback_data=f'render_latex-{message_hash}'))
+    
+    latex_expressions = re.findall(r'\$\$(.*?)\$\$|\$(.*?)\$', answer, re.DOTALL) 
 
     user_text_language = detect_language(text)
     answer_text_language = detect_language(answer)
@@ -266,10 +270,20 @@ async def message_handler(message: Message, state: FSMContext) -> None:
             await message.answer(answer[:4000])
         answer = answer[4000:]
 
+    # ======================= latex expressions in message to png =======================
+    expressions = await async_expressions_to_png(latex_expressions)
+    output_files_to_delete.extend(expressions)
+
+    if expressions:
+        merge_latex_image = merge_pngs_vertically(expressions)
+        await message.answer_photo(FSInputFile(merge_latex_image))
+        output_files_to_delete.append(merge_latex_image)
+        
+
 
     # ======================= delete files =======================
     try:
-        for file in output_files:
+        for file in output_files_to_delete:
             if not file.startswith('https:'):
                 try:
                     os.remove(file)
@@ -280,8 +294,6 @@ async def message_handler(message: Message, state: FSMContext) -> None:
         print(e)
 
     await state.clear()
-
-
 
 
 

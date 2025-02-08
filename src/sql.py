@@ -65,7 +65,7 @@ def sql_check_user(telegram_name: str, telegram_username: str, user_id: int):
     connection.close()
 
 
-def sql_select_history(id: int, n: int | str = 7):
+def sql_select_history(id: int, n: int | str = 10):
     '''Returns the last n messages from the database by id. Format [{'role' : ..., 'content': ...}, ...]'''
     connection = sqlite3.connect('assistant.db') 
     cursor = connection.cursor()
