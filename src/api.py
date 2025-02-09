@@ -17,14 +17,19 @@ import hashlib
 import PIL.Image
 from urllib.parse import quote
 
+
 if __name__ == '__main__' or '.' not in __name__:
     from log import log
 else:
     from .log import log
 
+
 load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 path = '\\'.join(os.path.dirname(os.path.abspath(__file__)).split('\\')[:-1])
 
+
+def date_hash() -> str:
+    return hashlib.md5(datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f").encode()).hexdigest()
 
 
 def download_image(url: str) -> str:
@@ -53,8 +58,7 @@ async def async_download_image(session, url, name):
 
 
 async def download_images(image_urls):
-    date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    name = hashlib.md5(date.encode()).hexdigest()
+    name = date_hash()
     async with aiohttp.ClientSession() as session:
         tasks = []
         for i, url in enumerate(image_urls):
@@ -67,7 +71,7 @@ async def download_images(image_urls):
     
 
 def merge_pngs_vertically(image_paths: list) -> str:
-    output_path = hashlib.md5(datetime.now().strftime("%Y-%m-%d %H:%M:%S").encode()).hexdigest() + '.png'
+    output_path = date_hash() + '.png'
     images = [PIL.Image.open(img_path) for img_path in image_paths]
 
     total_width = max(img.width for img in images)
@@ -836,3 +840,61 @@ def imdb_api(title):
 
     log(f'Succes result for {title}')
     return result, poster
+
+
+# =========================< IMAGE GENERATE (HF) >=========================
+from gradio_client import Client
+load_dotenv()  # idk, but it nessary
+hf_tokens = os.getenv('HF_API_KEY', '').split(',')
+hf_tokens = [token.strip() for token in hf_tokens if token.strip()]
+hugging_face_clients = [Client('black-forest-labs/FLUX.1-dev', hf_token=token) for token in hf_tokens]
+hg_client_index = 0
+
+def get_next_client():
+    global hg_client_index
+    client = hugging_face_clients[hg_client_index]
+    hg_client_index = (hg_client_index + 1) % len(hugging_face_clients)
+    return client
+
+
+async def hugging_face_flux(prompt: str, seed: int = 0, randomize_seed: bool = True, width: int = 1024, height: int = 1024, guidance_scale: float = 3.5, num_inference_steps: int = 28) -> tuple[str, int] | None:
+    attempts = 4
+    
+    seed = max(0, min(seed, 2**31-1))
+    width = max(256, min(width, 2048))
+    height = max(256, min(height, 2048))
+    guidance_scale = max(1, min(guidance_scale, 15))
+    num_inference_steps = max(1, min(num_inference_steps, 50))
+    
+    log(f'Start flux generate: {prompt}  seed: {seed}  randomize_seed: {randomize_seed}  width: {width}  height: {height}  guidance_scale: {guidance_scale}  num_inference_steps: {num_inference_steps}')
+    for i in range(attempts):
+        client = get_next_client()
+        try:
+            result = await asyncio.to_thread(client.predict,
+                prompt=prompt,
+                seed=seed,
+                randomize_seed=randomize_seed,
+                width=width,
+                height=height,
+                guidance_scale=guidance_scale,
+                num_inference_steps=num_inference_steps
+            )
+            path, seed = result[0], result[1]
+            return path, seed
+        except Exception as e:
+            log(f'{e}. attempt: {i}', error=True)
+    
+    return None
+
+
+async def generate_image(prompt: str, number_of_image: int = 4):  # TODO: setting, delete files
+    
+    tasks = [hugging_face_flux(prompt) for _ in range(number_of_image)]
+
+    results = await asyncio.gather(*tasks)
+
+    images = [i[0] for i in results]
+    seeds = [i[1] for i in results]
+    log(f'{prompt}  seeds: {seeds}')
+
+    return f'{number_of_image} images have been created and will be attached to the response. Seeds: {seeds}', images

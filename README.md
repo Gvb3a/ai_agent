@@ -16,6 +16,7 @@ This telegram bot gives access to an ai agent that can search for information on
 - [latexonline.cc](https://latexonline.cc/) and [Equation Render](https://latex.codecogs.com/) as LaTeX compilator
 - [pythonanywhere](https://www.pythonanywhere.com/) - hosting
 - [PyMovieDb](https://github.com/itsmehemant7/PyMovieDb) - for free [IMDB](https://www.imdb.com/) api
+- [Hugging Face](https://huggingface.co/black-forest-labs/FLUX.1-dev) - for free image generate with FLUX
 
 ### Lanch
 Download the necessary libraries (requirements.txt)\

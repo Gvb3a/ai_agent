@@ -5,7 +5,6 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import default_state, State, StatesGroup
 import os
 from dotenv import load_dotenv
-from datetime import datetime
 import re
 
 
@@ -66,6 +65,7 @@ The bot also supports the compilation of LaTeX documents. If the message contain
  • *Translate*: If the model has answered in a language other than yours, you will be able to translate the answer. This will allow you to speak unpopular languages ​​+ it is no secret that the model thinks better in English.
  • *Youtube*: With `youtube_sum` you can send a link to a YouTube video and he will retell it to you. In the future, you can ask questions.
  • *IMDB*: `imdb_api` will give the model an answer from the largest library of films. This will help to find out the year of release, actors, genres, ratings, reviews, etc. 
+ • *Image Generate*: Thanks to Hugging Face, the bot can generate images using Flux. Function name: `generate_image`.
 
 Admin: @gvb3a
 '''

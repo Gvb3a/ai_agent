@@ -3,15 +3,15 @@ from typing import Literal
 import asyncio
 
 if __name__ == '__main__' or '.' not in __name__:
-    from api import llm_api, calculator, wolfram_short_answer, wolfram_full_answer, google_short_answer, google_full_answer, google_image, youtube_sum, latex_expression_to_png, imdb_api
+    from api import llm_api, calculator, wolfram_short_answer, wolfram_full_answer, google_short_answer, google_full_answer, google_image, youtube_sum, latex_expression_to_png, imdb_api, generate_image
     from log import log
 
 else:
-    from .api import llm_api, calculator, wolfram_short_answer, wolfram_full_answer, google_short_answer, google_full_answer, google_image, youtube_sum, latex_expression_to_png, imdb_api
+    from .api import llm_api, calculator, wolfram_short_answer, wolfram_full_answer, google_short_answer, google_full_answer, google_image, youtube_sum, latex_expression_to_png, imdb_api, generate_image
     from .log import log
 
 
-system_prompt = '''You are a helpful ai agent with tools. You can use WolframALpha, Google, Search image, Summarize YouTube videos, Run python code, search in IMDB and Compilate LaTeX dpocument. You are a Telegram bot providing the best answers. User does not see system message. 
+system_prompt = '''You are a helpful ai agent with tools. You can use WolframALpha, Google, Search image, Summarize YouTube videos, Run python code, search in IMDB, Generate images with Flux and Compilate LaTeX dpocument. You are a Telegram bot providing the best answers. User does not see system message. 
 You can use all markdown features. If you write an expression in $$, it will turn into flat text and at the same time will be compiled into an image. So sometimes it is better to write without LaTeX markup. Look at the user's reaction (or ask). LaTeX expressions should not contain Cyrillic characters.
 To run the code, you must write it in ```python<code>``` and ask the user to click the button below the message to execute the. Only the first block of code will be executed. Available matplotlib. Write python code ONLY if this necessary. If you write a LaTeX document (in ```latex<document>```) you should also ask the user to compile it and he will get a pdf.'''
 
@@ -36,6 +36,11 @@ functions = {
     'google_image': {
         'function': google_image,
         'description': 'Pictures that pop up when you search. Use when the user asks to find a picture',
+        'output_file': True
+    },
+    'generate_image': {
+        'function': generate_image,
+        'description': 'Generate image by prompt with Flux. Prompt only on English. You must write detailed prompts.',
         'output_file': True
     },
     'youtube_sum': {   # TODO: ask que
