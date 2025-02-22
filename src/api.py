@@ -297,48 +297,6 @@ def llm_api(messages: list[dict], files: str | list = [], provider: Literal['gro
 WOLFRAM_SIMPLE_API = os.getenv('WOLFRAM_SIMPLE_API_KEY')
 WOLFRAM_SHOW_STEPS_RESULT = os.getenv('WOLFRAM_SHOW_STEPS_RESULT')
 
-# TODO: remake prompt, add an interpreter
-prompt_for_transform_query_wolfram = """You have to turn a user query into a query that wolfram alpha will understand (If the enquiry is normal, leave it that way).
-
-Examples:
-
-1. User: Use wolfram alpha and solve this equation 3x-1=11
-   You: 3x-1=11
-
-2. User: Solve 3x^2-7x+4=0
-   You: Solve 3x^2-7x+4=0
-
-3. User: {sqrt2}}^{sqrt{2}
-   You: sqrt[2]^sqrt[2]
-
-4. User: Slve 2x^2=16
-   You: Solve 2x^2=16
-
-5. User: Help me and do the math (567^34)/435-6758
-   You: (567^34)/435-6758
-
-6. User: Sum of roots 8x^3-4x^2+11x-36=0
-   You: Sum of roots 8x^3-4x^2+11x-36=0
-
-7. User: Use wolfram alpha to find the population of France
-   You: France population
-
-
-Also wolfram alpha only accepts the English language
-
-8. User: x в кубе равно 8
-   You: x^3=8
-
-9. User: 14x meno 5 uguale 0
-   You: 14x-5=0
-
-10. User: Calculer 456^45
-   You: Calculate 456^45
-
-
-Now, respond to the query by following the rules
-"""
-
 
 def calculator(expression: str) -> str:
     try:
@@ -364,7 +322,7 @@ def wolfram_llm_api(text: str) -> tuple[str, list]:
     query = quote(text)
     url = f'https://www.wolframalpha.com/api/v1/llm-api?input={query}&appid={WOLFRAM_SHOW_STEPS_RESULT}'
     answer = requests.get(url).text
-    
+    # TODO: improve (add async) and add llm
     answer = answer[:answer.find('Wolfram|Alpha website result for "')]
     links = re.findall(r'https?://\S+', answer)
     answer = re.sub(r'https?://\S+', 'Images will be attached to the answer', answer)
@@ -406,10 +364,9 @@ from deep_translator import GoogleTranslator, single_detection
 
 detect_language_api_key = os.getenv('DETECT_LANGUAGE_API')
 tavily_client = TavilyClient(api_key=os.getenv('TAVILY_API_KEY'))
-# TODO: ggcs translator, detect language
 
 
-def detect_language(text: str) -> str:  # TODO: google and ggcs translator
+def detect_language(text: str) -> str:  # TODO: ggcs translator
     try:
         return single_detection(text=text, api_key=detect_language_api_key, detailed=False)
     except:
@@ -488,7 +445,7 @@ Ignore unnecessary information and answer the query well.
 
 
 def sum_page(link: str, query: str) -> str:
-    prompt = prompt_for_sum + f'\n\nQuery:\n{query}\n\nSource text:\n{parsing(link)}'  # TODO: parser error
+    prompt = prompt_for_sum + f'\n\nQuery:\n{query}\n\nSource text:\n{parsing(link)}'  # TODO: IMPROVE
     messages = [{"role": "user", "content": prompt}]
     try:
         llm_answer = llm_api(messages=messages, provider='google')
@@ -640,7 +597,7 @@ def get_youtube_transcripts(link: str, language: str = 'en'):
 
 
 def youtube_sum(link: str, question: str | None = None, language: str = 'en') -> str: 
-    # TODO: solve the problem with periodic errors (just does not give subtitles, and then gives them) and make it possible to ask questions (llm_select_tool).
+    # make it possible to ask questions.
     text, title = get_youtube_transcripts(link, language)
 
     if question:
@@ -695,16 +652,20 @@ def code_interpreter(code: str):
 
 # =========================< LATEX >=========================
 def latex_expression_to_png(expression: str, size: int = 400):
-    expression = expression.strip('$')
-    link = 'https://latex.codecogs.com/png.image?\\dpi{' + str(size) + '}' + expression.replace(' ', '%20')
-    response = requests.get(link)
-    file_name = hashlib.md5(expression.encode()).hexdigest() + '.png'
-    if response.status_code == 200:
-        with open(file_name, 'wb') as f:
-            f.write(response.content)
-        log(expression)
-        return f'A rendering of the expression {expression} will be added to the answer', [file_name]
-    else:
+    try:
+        expression = expression.strip('$')
+        link = 'https://latex.codecogs.com/png.image?\\dpi{' + str(size) + '}' + expression.replace(' ', '%20')
+        response = requests.get(link)
+        file_name = hashlib.md5(expression.encode()).hexdigest() + '.png'
+        if response.status_code == 200:
+            with open(file_name, 'wb') as f:
+                f.write(response.content)
+            log(expression)
+            return f'A rendering of the expression {expression} will be added to the answer', [file_name]
+        else:
+            log(expression, error=True)
+            return None
+    except:
         log(expression, error=True)
         return None
     

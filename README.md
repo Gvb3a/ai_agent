@@ -37,14 +37,16 @@ Then run `bot.py`
 ### Todo:
 
 - [ ] Local llm wia hugging face and ollama
+- [ ] Work with files (removebg)
 - [ ] Integration with Todoist, Calendar, Gmail, Notion
 - [ ] Memory as in ChatGPT
 - [ ] Embedings and vector datebase
-- [ ] Picture generate
+- [ ] Improve picture generate (setting, delete files, more api's)
 - [ ] ElevenLabs
 - [ ] Working with multiple files (merge pdf) and sending files
 - [ ] Upgrate `google_full_search` and `wolfram_full_answer`
 - [ ] See what can be taken from https://github.com/theurs/tb1
-  
+- [ ] TODO in files  
+- [ ] CLI interface
 ---
 You can try it [here](https://t.me/personalised_ai_assistant_bot) if it is enabled

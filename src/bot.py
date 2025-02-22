@@ -6,6 +6,8 @@ from aiogram.fsm.state import default_state, State, StatesGroup
 import os
 from dotenv import load_dotenv
 import re
+from time import sleep
+import asyncio
 
 
 if __name__ == '__main__' or '.' not in __name__:
@@ -48,7 +50,7 @@ async def download_file_for_id(file_id, extension):
 
 @dp.message(CommandStart())  # /start command handler
 async def start_command_handler(message: Message) -> None:
-    await message.answer('Hi! I am an AI agent that can search for information on the internet, use a WolfraAlpha (calculator), summarize youtube videos, compile latex files and images and execute python code. How can I help you today?  \n\n[GitHub](https://github.com/Gvb3a/assistant)', parse_mode='Markdown')
+    await message.answer('Hi! I am an AI agent that can search for information on the internet, use a WolfraAlpha (calculator), summarize youtube videos, compile latex files, generate pictures, use IMDB and images and execute python code. How can I help you today?  \n\n[GitHub](https://github.com/Gvb3a/assistant)', parse_mode='Markdown')
     log(f'{message.from_user.full_name}({message.from_user.username})')
 
 
@@ -65,7 +67,7 @@ The bot also supports the compilation of LaTeX documents. If the message contain
  • *Translate*: If the model has answered in a language other than yours, you will be able to translate the answer. This will allow you to speak unpopular languages ​​+ it is no secret that the model thinks better in English.
  • *Youtube*: With `youtube_sum` you can send a link to a YouTube video and he will retell it to you. In the future, you can ask questions.
  • *IMDB*: `imdb_api` will give the model an answer from the largest library of films. This will help to find out the year of release, actors, genres, ratings, reviews, etc. 
- • *Image Generate*: Thanks to Hugging Face, the bot can generate images using Flux. Function name: `generate_image`.
+ • *Image Generate*: Thanks to Hugging Face, the bot can generate images using Flux. Function name: `generate_image`. Generation takes about a minute.
 
 Admin: @gvb3a
 '''
@@ -98,7 +100,17 @@ async def log_command_handler(message: Message) -> None:
 
 @dp.message(StateFilter(FSM.processing))
 async def processing_message_handler(message: Message, state: FSMContext) -> None:
-    await message.reply('The request is being processed. Please wait. If it\'s stuck, write to the [admin](@gvb3a)')
+    inline_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=f'Cancel generation', callback_data=f'clear_state')]])
+    await message.reply('If you get stuck, write to [admin](https://t.me/gvb3a) or click the button below and wait half a minute.', reply_markup=inline_keyboard, parse_mode='Markdown')
+    log(f'{message.from_user.full_name}({message.from_user.username}) - stuck')
+
+
+@dp.callback_query(F.data == 'clear_state')
+async def clear_state_callback(callback: CallbackQuery, state: FSMContext) -> None:
+    log(f'{callback.from_user.full_name}({callback.from_user.username}) - button clear state')
+    sleep(20)
+    await state.clear()
+    await callback.answer('State cleared')
 
 
 @dp.message(StateFilter(default_state))
@@ -165,11 +177,11 @@ async def message_handler(message: Message, state: FSMContext) -> None:
         text = str(message.text)
     
     await message.reply('\n'.join(temp_message_text))
-
     # ======================= take history and files =======================
     messages = sql_select_history(id=user_id)
     messages.insert(0, {'role': 'system', 'content': system_prompt})
     messages.append({'role': 'user', 'content': text})
+    sql_insert_message(user_id=user_id, role='user', content=text)
      
     for file in input_files:  # If the file is not a picture, convert the file to text and add it to the user message
         if not(file.endswith('.png') or file.endswith('.jpg') or file.endswith('.jpeg') or file.endswith('.webp')):
@@ -179,36 +191,38 @@ async def message_handler(message: Message, state: FSMContext) -> None:
     log(f'new message by {user}. messages: {text}, files: {input_files}')
 
 
-    # ======================= select tool =======================
-    tools = llm_select_tool(messages=messages, files=input_files, provider='google')
+    # ======================= select tool, use tool and get answer =======================
+    loop = asyncio.get_running_loop()
+    
+
+    select_task = loop.run_in_executor(None, llm_select_tool, messages, input_files, 'google')
+    api_task = loop.run_in_executor(None, llm_api, messages, input_files, 'google')
+
+    tools = await select_task
+    
     if tools == []:
+        
         temp_message_text[0] = temp_message_text[0][:-2] + '✅'
+        temp_message_text[1] = temp_message_text[1][:-2] + '✅'
+        await bot.edit_message_text(chat_id=chat_id, message_id=temp_message_id, text='\n'.join(temp_message_text))
+        answer = await api_task
+        output_files = []
     else:
         temp_message_text[0] = temp_message_text[0][:-2] + '(' +','.join(set([i['func_name'] for i in tools])) + ')✅'
-    await bot.edit_message_text(chat_id=chat_id, message_id=temp_message_id, text='\n'.join(temp_message_text))
+        await bot.edit_message_text(chat_id=chat_id, message_id=temp_message_id, text='\n'.join(temp_message_text))
 
+        tool_result, output_files = await llm_use_tool(tools=tools)
+        temp_message_text[1] = temp_message_text[1][:-2] + '✅'
+        await bot.edit_message_text(chat_id=chat_id, message_id=temp_message_id, text='\n'.join(temp_message_text))
 
-    # ======================= use tool =======================
-    tool_result, output_files = await llm_use_tool(tools=tools)
-    temp_message_text[1] = temp_message_text[1][:-2] + '✅'
-    await bot.edit_message_text(chat_id=chat_id, message_id=temp_message_id, text='\n'.join(temp_message_text))
-    
-    
-    # ======================= inceset to database =======================
-    sql_insert_message(user_id=user_id, role='user', content=text)
-    if bool(tool_result) + bool(output_files):
         messages.append({'role': 'system', 'content': 'tool result:\n' + tool_result})
         sql_insert_message(user_id=user_id, role='system', content='tool result:\n' + tool_result)
         
-        
-    # ======================= get answer and record this =======================
-    answer = llm_api(messages=messages, files=input_files, provider='google')
-
+        answer = llm_api(messages=messages, files=input_files, provider='google')
 
     await bot.delete_message(chat_id=chat_id, message_id=temp_message_id)
     log(f'answer to {user}({text}): {answer}')
     sql_insert_message(user_id=user_id, role='assistant', content=answer)
-
 
     # ======================= send files =======================
     output_files_to_delete = output_files.copy()
@@ -231,7 +245,6 @@ async def message_handler(message: Message, state: FSMContext) -> None:
             print('media group error', e)
 
         output_files = output_files[9:]
-
 
     # ======================= buttons =======================
     inline_keyboard = []
@@ -258,7 +271,7 @@ async def message_handler(message: Message, state: FSMContext) -> None:
         inline_keyboard = None
     else:
         inline_keyboard = InlineKeyboardMarkup(inline_keyboard=[inline_keyboard])
-
+ 
 
     # ======================= send answer =======================
     while answer:
@@ -266,7 +279,6 @@ async def message_handler(message: Message, state: FSMContext) -> None:
             await message.answer(markdown_to_html(answer[:4000]), parse_mode='HTML', reply_markup=inline_keyboard)
             inline_keyboard = None
         except Exception as e:
-            print(e)
             await message.answer(answer[:4000])
         answer = answer[4000:]
 

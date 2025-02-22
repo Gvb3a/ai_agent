@@ -148,7 +148,7 @@ async def llm_use_tool(tools: list[dict]) -> tuple[str, list]:
 def llm_full_answer(messages: list, files: list = [], provider: Literal['groq', 'google'] = 'groq') -> str:
 
     tools = llm_select_tool(messages=messages)
-    tool_result, images = asyncio.run(llm_use_tool(tools=tools))  # TODO: await
+    tool_result, images = asyncio.run(llm_use_tool(tools=tools))
 
 
     if type(messages) == str:
