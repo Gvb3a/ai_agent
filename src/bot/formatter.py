@@ -2,7 +2,7 @@
 '''
 <<<========================== WARNING ==========================>>>
 All code in this file was taken from https://github.com/theurs/tb1.
-It's unreadable, it looks terrible, I don't understand it, but it works perfectly.
+It's unreadable, I don't understand it, but it works perfectly.
 <<<========================== WARNING ==========================>>>
 '''
 
@@ -580,6 +580,6 @@ def markdown_to_html(text: str) -> str:
 '''
 <<<========================== WARNING ==========================>>>
 All code in this file was taken from https://github.com/theurs/tb1.
-It's unreadable, it looks terrible, I don't understand it, but it works perfectly.
+It's unreadable, I don't understand it, but it works perfectly.
 <<<========================== WARNING ==========================>>>
 '''
