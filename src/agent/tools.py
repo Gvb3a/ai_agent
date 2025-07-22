@@ -2,27 +2,22 @@ import os
 import requests
 import json
 import re
-from inspect import stack
 from urllib.parse import quote
-from time import sleep
 from datetime import datetime
-from dotenv import load_dotenv
 from bs4 import BeautifulSoup
 from typing import Literal
-from colorama import Fore, Style, init
 import aiohttp
 import asyncio
 import base64
 import hashlib
 import PIL.Image
-from urllib.parse import quote
 
 
 from ..config.logger import logger
+from ..config.config import load_config
 
 
-load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
-path = '\\'.join(os.path.dirname(os.path.abspath(__file__)).split('\\')[:-1])
+config = load_config()
 
 
 def date_hash() -> str:
@@ -96,7 +91,7 @@ import PyPDF2
 import docx
 from groq import Groq
 
-groq_api_key = os.getenv('GROQ_API_KEY')
+groq_api_key = config.api.groq_key
 groq_client = Groq(api_key=groq_api_key)
 
 
@@ -217,7 +212,7 @@ def groq_api(messages: list, model: str = 'llama-3.3-70b-versatile') -> str:
 # =========================< GOOGLE API >=========================
 import google.generativeai as genai
 
-os.environ["GOOGLE_API_KEY"] = str(os.getenv("GOOGLE_API_KEY"))
+os.environ["GOOGLE_API_KEY"] = config.api.gemini_key
 genai.configure(api_key=os.environ['GOOGLE_API_KEY'])
 google_model_thinking = genai.GenerativeModel("gemini-2.0-flash-thinking-exp")
 google_model = genai.GenerativeModel("gemini-2.5-flash")
@@ -291,8 +286,8 @@ def llm_api(messages: list[dict], files: str | list = [], provider: Literal['gro
 
 
 # =========================< WOLFRAM ALPHA >=========================
-WOLFRAM_SIMPLE_API = os.getenv('WOLFRAM_SIMPLE_API_KEY')
-WOLFRAM_SHOW_STEPS_RESULT = os.getenv('WOLFRAM_SHOW_STEPS_RESULT')
+WOLFRAM_SIMPLE_API = config.api.wolfram_simple_key
+WOLFRAM_SHOW_STEPS_RESULT = config.api.wolfram_full_key
 
 
 def calculator(expression: str) -> str:
@@ -360,8 +355,8 @@ from tavily import TavilyClient
 from duckduckgo_search import DDGS
 from deep_translator import GoogleTranslator, single_detection
 
-detect_language_api_key = os.getenv('DETECT_LANGUAGE_API')
-tavily_client = TavilyClient(api_key=os.getenv('TAVILY_API_KEY'))
+detect_language_api_key = config.api.detect_language_key
+tavily_client = TavilyClient(api_key=config.api.tavily_key)
 
 
 def detect_language(text: str) -> str:  # TODO: ggcs translator

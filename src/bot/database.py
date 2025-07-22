@@ -99,7 +99,8 @@ def sql_get_message_by_hash(message_hash: str):
     connection = sqlite3.connect(config.database.path)
     cursor = connection.cursor()
 
-    content = cursor.execute(f"SELECT content FROM Messages WHERE message_hash = '{message_hash}'").fetchone()[0]
+    content = cursor.execute("SELECT content FROM Messages WHERE message_hash = ?", (message_hash,)).fetchone()[0]
+    
     connection.close()
 
     return content

@@ -167,3 +167,16 @@ def llm_full_answer(messages: list, files: list = [], provider: Literal['groq', 
     logger.info(f'answer: {answer}, tool: {tool_result}, images: {images}')
 
     return answer
+
+
+if __name__ == '__main__':
+    messages = [{'role': 'system', 'content': system_prompt}]
+    while True:
+        user_input = input('Enter your question: ')
+        if user_input.lower() in ['exit', 'quit', 'stop']:
+            break
+        messages.append({'role': 'user', 'content': user_input})
+        answer = llm_full_answer(messages=messages)
+        print(f'Answer: {answer}')
+        messages.append({'role': 'assistant', 'content': answer})
+        

@@ -5,6 +5,13 @@ from .config import load_config
 config = load_config()
 
 
+import os
+if not os.path.exists(config.logs.log_path):
+    os.makedirs(config.logs.log_path)
+if not os.path.exists(config.logs.errors_log_path):
+    os.makedirs(config.logs.errors_log_path)
+    
+
 logging.basicConfig(
     level=logging.DEBUG,
     filename=config.logs.log_path,
@@ -22,3 +29,12 @@ error_handler.setFormatter(logging.Formatter(
     "%(asctime)s | %(levelname)-8s | %(filename)s:%(lineno)d | %(funcName)s | %(message)s"
 ))
 logger.addHandler(error_handler)
+
+
+# Console handler for real-time logging output.
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.DEBUG)
+console_handler.setFormatter(logging.Formatter(
+    "%(asctime)s | %(levelname)-8s | %(filename)s:%(lineno)d | %(funcName)s | %(message)s"
+))
+logger.addHandler(console_handler)
