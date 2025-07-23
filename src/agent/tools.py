@@ -17,6 +17,7 @@ from ..config.logger import logger
 from ..config.config import load_config
 
 
+os.environ['GRPC_DNS_RESOLVER'] = 'native'
 config = load_config()
 
 
@@ -91,18 +92,25 @@ import PyPDF2
 import docx
 from groq import Groq
 
-groq_api_key = config.api.groq_key
-groq_client = Groq(api_key=groq_api_key)
+groq_api_keys = config.api.groq_key
+groq_client = [Groq(api_key=key) for key in groq_api_keys]
 
 
 def speech_recognition(file_name: str) -> str:  # TODO: local_whisper
 
     with open(file_name, "rb") as file:
-        translation = groq_client.audio.transcriptions.create(
-        file=(file_name, file.read()),
-        model="whisper-large-v3")
-        
-        text = translation.text
+        for client in groq_client:
+            try:
+                translation = client.audio.transcriptions.create(
+                    file=(file_name, file.read()),
+                    model="whisper-large-v3")
+                text = translation.text
+                logger.info(f'Success: {text}')
+                break
+            except Exception as e:
+                logger.error(f'Error with speech recognition on {client.api_key}: {e}', exc_info=True)
+                text = f'Error with speech recognition: {e}'
+                continue
     
     return str(text).strip()
 
@@ -201,11 +209,20 @@ def merges_pdf(files: list[str]) -> str:
 # =========================< GROQ API >=========================
 def groq_api(messages: list, model: str = 'llama-3.3-70b-versatile') -> str:
     # https://console.groq.com/docs/models
-    response = groq_client.chat.completions.create(
-        messages=messages,
-        model=model)
-        
-    return str(response.choices[0].message.content)
+    for client in groq_client:
+        try:
+            response = client.chat.completions.create(
+                messages=messages,
+                model=model)
+            logger.info(f'Success: {response.choices[0].message.content}')
+            answer = str(response.choices[0].message.content)
+            break
+        except Exception as e:
+            logger.error(f'Error with {model} on {client.api_key}: {e}', exc_info=True)
+            answer = f'Groq error: {e}'
+            continue
+
+    return answer
 
 
 

@@ -11,6 +11,7 @@ BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 class TgBot:
     token: str
     admin_ids: list[int]
+    support_tg: str
 
 
 @dataclass
@@ -27,8 +28,8 @@ class Logs:
 @dataclass
 class API:
     gemini_key: str
-    huggingface_key: str
-    groq_key: str
+    huggingface_key: list
+    groq_key: list
     tavily_key: str
     wolfram_simple_key: str
     wolfram_full_key: str
@@ -62,7 +63,8 @@ def load_config(path: str | None = None) -> Config:
     return Config(
         tg_bot=TgBot(
             token=env.str("BOT_TOKEN", default=""),
-            admin_ids=env.list("ADMINS", subcast=int, default=[])
+            admin_ids=env.list("ADMIN_IDS", subcast=int, default=[]),
+            support_tg=env.str("SUPPORT_TG_USERNAME", default="")
         ),
         database=Database(
             path=os.path.join(BASE_DIR, "src", "bot", "database.db")
@@ -73,8 +75,8 @@ def load_config(path: str | None = None) -> Config:
         ),
         api=API(
             gemini_key=env.str("GEMINI_API_KEY", default=""),
-            huggingface_key=env.str("HUGGINGFACE_API_KEY", default=""),
-            groq_key=env.str("GROQ_API_KEY", default=""),
+            huggingface_key=env.list("HUGGINGFACE_API_KEY", subcast=str, default=[]),
+            groq_key=env.list("GROQ_API_KEY", subcast=str, default=[]),
             tavily_key=env.str("TAVILY_API_KEY", default=""),
             wolfram_simple_key=env.str("WOLFRAM_SIMPLE_API_KEY", default=""),
             wolfram_full_key=env.str("WOLFRAM_FULL_API_KEY", default=""),

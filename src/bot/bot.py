@@ -62,7 +62,7 @@ async def start_command_handler(message: Message) -> None:
     logger.info(f'{message.from_user.full_name}({message.from_user.username})')
 
 
-help_message = '''[Code source](https://github.com/Gvb3a/assistant)\n\
+help_message = f'''[Code source](https://github.com/Gvb3a/assistant)\n\
 
 Model: `gemini-2.0-flash-exp` or `llama-3.3-70b`
 
@@ -77,7 +77,7 @@ The bot also supports the compilation of LaTeX documents. If the message contain
  • *IMDB*: `imdb_api` will give the model an answer from the largest library of films. This will help to find out the year of release, actors, genres, ratings, reviews, etc. 
  • *Image Generate*: Thanks to Hugging Face, the bot can generate images using Flux. Function name: `generate_image`. Generation takes about a minute.
 
-Admin: @gvb3a
+Support: @{config.tg_bot.support_tg}
 '''
 @dp.message(Command('help'))
 async def help_command_handler(message: Message) -> None:
@@ -97,7 +97,8 @@ ADMIN_IDS = config.tg_bot.admin_ids
 async def log_command_handler(message: Message) -> None:
     if message.from_user.id in ADMIN_IDS:
         try:
-            await message.answer_document(FSInputFile('agent_log.log'))
+            await message.answer_document(FSInputFile(config.logs.log_path))
+            await message.answer_document(FSInputFile(config.logs.errors_log_path))
         except Exception as e:
             await message.reply(f'Error: {e}')
         logger.info('Admin used /log command')
@@ -109,7 +110,7 @@ async def log_command_handler(message: Message) -> None:
 @dp.message(StateFilter(FSM.processing))
 async def processing_message_handler(message: Message, state: FSMContext) -> None:
     inline_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=f'Cancel generation', callback_data=f'clear_state')]])
-    await message.reply('If you get stuck, write to [admin](https://t.me/gvb3a) or click the button below and wait half a minute.', reply_markup=inline_keyboard, parse_mode='Markdown')
+    await message.reply(f'If you get stuck, write to [admin](https://t.me/{config.tg_bot.support_tg}) or click the button below and wait 10 seconds', reply_markup=inline_keyboard, parse_mode='Markdown')
     logger.warning(f'{message.from_user.full_name}({message.from_user.username}) - stuck')
 
 

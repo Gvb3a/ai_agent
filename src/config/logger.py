@@ -13,7 +13,7 @@ if not os.path.exists(config.logs.errors_log_path):
     
 
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     filename=config.logs.log_path,
     filemode="a",
     encoding="utf-8",
