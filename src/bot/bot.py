@@ -140,8 +140,20 @@ async def wolfram_command_handler(message: Message, state: FSMContext) -> None:
 @dp.message(StateFilter(FSM.wolfram))
 async def wolfram_message_handler(message: Message, state: FSMContext) -> None:
     await state.set_state(FSM.processing)
-    await message.answer("Processing your WolframAlpha query... ")
-    query = message.text
+    if message.photo:
+        await message.answer("Processing your WolframAlpha query... Image recognition will take time.")
+        file = await bot.get_file(message.photo[-1].file_id)
+        file_path = file.file_path
+        file_name = file.file_path.split('/')[-1]
+        await bot.download_file(file_path, file_name)
+
+        input_files = [file_name]
+        system_prompt = "You are a helpful assistant who can turn images into a query for Wolfram Alpha. In your answer, provide ONLY the text of the expression, without any additional comments. If the image contains a mathematical expression, write it down exactly as it appears. If there are several expressions in the picture, write only the first one."
+        prompt = f"Give a query for Wolfram Alpha from this image"
+        query = llm_api(messages=[{'role': 'system', 'content': system_prompt}, {'role': 'user', 'content': prompt}], files=input_files)
+    else:
+        await message.answer("Processing your WolframAlpha query... ")
+        query = message.text
     response = wolfram_simple_api(query)
     temp_message_id = message.message_id + 1
     if response is None:
@@ -159,6 +171,7 @@ async def wolfram_message_handler(message: Message, state: FSMContext) -> None:
     else:
         await message.answer("Sorry, I couldn't process your query.")
 
+    logger.info(f'{message.from_user.full_name}({message.from_user.username}) - {query}')
     await state.set_state(FSM.wolfram)
 
 
