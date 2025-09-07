@@ -23,15 +23,22 @@ Download the necessary libraries (requirements.txt)\
 Create this `.env` file and fill api keys
 ```
 BOT_TOKEN=
+ADMIN_IDS=
+SUPPORT_TG_USERNAME=
+
+GEMINI_API_KEY=
+HUGGINGFACE_API_KEY=
 GROQ_API_KEY=
+
 TAVILY_API_KEY=
 WOLFRAM_SIMPLE_API_KEY=
-WOLFRAM_SHOW_STEPS_RESULT=
-DETECT_LANGUAGE_API=
-GOOGLE_API_KEY=
+WOLFRAM_FULL_API_KEY=
+TODOIST_API_KEY=
+DETECT_LANGUAGE_API_KEY=
 E2B_API_KEY=
+
 ```
-Then run `bot.py`
+Open `ai_agent` folder and run: `python -m src.bot.bot`
 
 
 ### Todo:

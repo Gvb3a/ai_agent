@@ -26,13 +26,17 @@ def date_hash() -> str:
 
 
 def download_image(url: str) -> str:
-    'Downloads the image from the link. Returns the name of the downloaded image (name is time).'
+    'Downloads the image from the link. Returns the name of the downloaded image'
     response = requests.get(url)
-    file_name = f'{hash(url)}.png'
-    with open(file_name, 'wb') as file:
-        file.write(response.content)
-    logger.info(file_name)
-    return file_name
+    if response.status_code == 200:
+        file_name = f'{hash(url)}.png'
+        with open(file_name, 'wb') as file:
+            file.write(response.content)
+        logger.info(file_name)
+        return file_name
+    else:
+        logger.error(f"Failed to download {url}: HTTP {response.status_code}")
+        return None
 
 
 
@@ -219,7 +223,7 @@ def groq_api(messages: list, model: str = 'llama-3.3-70b-versatile') -> str:
             break
         except Exception as e:
             logger.error(f'Error with {model} on {client.api_key}: {e}', exc_info=True)
-            answer = f'Groq error: {e}'
+            answer = f'Rate limit reached. '
             continue
 
     return answer
@@ -364,7 +368,6 @@ def wolfram_full_answer(text: str):  # TODO: async + wolfram_simple_api
     images = full_answer_images # TODO: [wolfram_simple_api(text)] + full_answer_images 
     logger.info(f'{full_answer}, {images}')
     return full_answer, images
-
 
 
 # =========================< TAVILY AND DUCKDUCKGO (INTERNERT) >=========================

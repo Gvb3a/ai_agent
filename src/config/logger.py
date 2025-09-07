@@ -1,15 +1,18 @@
 import logging
 from .config import load_config
+import os
 
 
 config = load_config()
 
 
-import os
-if not os.path.exists(config.logs.log_path):
-    os.makedirs(config.logs.log_path)
-if not os.path.exists(config.logs.errors_log_path):
-    os.makedirs(config.logs.errors_log_path)
+log_dir = os.path.dirname(config.logs.log_path)
+if log_dir and not os.path.exists(log_dir):
+    os.makedirs(log_dir)
+
+errors_log_dir = os.path.dirname(config.logs.errors_log_path)
+if errors_log_dir and not os.path.exists(errors_log_dir):
+    os.makedirs(errors_log_dir)
     
 
 logging.basicConfig(

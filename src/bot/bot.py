@@ -19,6 +19,8 @@ from ..agent.tools import (
     latex_to_pdf,
     async_expressions_to_png,
     merge_pngs_vertically,
+    wolfram_simple_api,
+    wolfram_short_answer
 )
 from ..agent.agent import system_prompt, llm_select_tool, llm_use_tool
 from .database import (
@@ -40,6 +42,7 @@ bot_token = config.tg_bot.token
 
 class FSM(StatesGroup):
     processing = State()
+    wolfram = State()
 
 
 bot = Bot(token=str(bot_token))
@@ -122,9 +125,46 @@ async def clear_state_callback(callback: CallbackQuery, state: FSMContext) -> No
     await callback.answer('State cleared')
 
 
+@dp.message(Command('wolfram'))
+async def wolfram_command_handler(message: Message, state: FSMContext) -> None:
+    current_state = await state.get_state()
+    if current_state == FSM.wolfram.state:
+        await state.clear()
+        await message.answer("Wolfram mode deactivated.")
+    else:
+        await state.set_state(FSM.wolfram)
+        await message.answer("All your questions will be answered using WolframAlpha. If you want to switch back to normal mode, type /wolfram.")
+    logger.info(f'{message.from_user.full_name}({message.from_user.username}) - {current_state}')
+
+
+@dp.message(StateFilter(FSM.wolfram))
+async def wolfram_message_handler(message: Message, state: FSMContext) -> None:
+    await state.set_state(FSM.processing)
+    await message.answer("Processing your WolframAlpha query... ")
+    query = message.text
+    response = wolfram_simple_api(query)
+    temp_message_id = message.message_id + 1
+    if response is None:
+        await bot.edit_message_text(chat_id=message.chat.id, message_id=temp_message_id, text="WolframAlpha couldn't process your query directly. Fixing...")
+        prompt = f"Fix this query for Wolfram Alpha: {query}."
+        system_prompt = "You are a helpful assistant that corrects queries for Wolfram Alpha. In your response, provide the corrected query ONLY"
+        new_query = llm_api(messages=[{'role': 'system', 'content': system_prompt}, {'role': 'user', 'content': prompt}], files=[])
+        response = wolfram_simple_api(new_query)
+
+    await bot.delete_message(chat_id=message.chat.id, message_id=temp_message_id)
+    if isinstance(response, str) and (response.endswith('.png') or response.endswith('.jpg') or response.endswith('.jpeg') or response.endswith('.webp')):
+        await message.answer_photo(FSInputFile(response))
+    elif isinstance(response, str) and (response.startswith('http://') or response.startswith('https://')):
+        await message.answer_photo(response)
+    else:
+        await message.answer("Sorry, I couldn't process your query.")
+
+    await state.set_state(FSM.wolfram)
+
+
+
 @dp.message(StateFilter(default_state))
 async def message_handler(message: Message, state: FSMContext) -> None:
-
     await state.set_state(FSM.processing)  # mark processing
 
     chat_id = message.chat.id
