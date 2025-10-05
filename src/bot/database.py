@@ -10,7 +10,7 @@ config = load_config()
 
 
 def text_to_hash(text: str) -> str:
-    return sha256(text.encode()).hexdigest()[:32]
+    return sha256(str(text).encode()).hexdigest()[:32]
 
 def utc_time():
     '''Get the current time in UTC + 0. Format: %Y.%m.%d %H:%M:%S'''

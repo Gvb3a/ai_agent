@@ -159,7 +159,7 @@ def files_to_text(files: list | str) -> str:
             elif file_path.endswith('.mp3'):
                 text = speech_recognition(file_path)
 
-            else:
+            elif file:
                 with open(file_path, 'r') as file:
                     text = file.read()
             
@@ -211,7 +211,7 @@ def merges_pdf(files: list[str]) -> str:
 
 
 # =========================< GROQ API >=========================
-def groq_api(messages: list, model: str = 'llama-3.3-70b-versatile') -> str:
+def groq_api_simple(messages: list, model: str = 'openai/gpt-oss-20b') -> str:
     # https://console.groq.com/docs/models
     for client in groq_client:
         try:
@@ -223,10 +223,33 @@ def groq_api(messages: list, model: str = 'llama-3.3-70b-versatile') -> str:
             break
         except Exception as e:
             logger.error(f'Error with {model} on {client.api_key}: {e}', exc_info=True)
-            answer = f'Rate limit reached. '
+            answer = f'Rate limit reached.'
             continue
 
     return answer
+
+
+def groq_api_compound(messages: list, model: Literal['groq/compound', 'groq/compound-mini'] = 'groq/compound', files: list = []) -> str:
+    for client in groq_client:
+        try:
+            if files:
+                messages[-1]['content'] += files_to_text(files)
+            response = client.chat.completions.create(
+                model="groq/compound",
+                messages=messages
+            )
+            answer = str(response.choices[0].message.content)
+            reasoning = print(response.choices[0].message.reasoning)
+            logger.info(f'Success: {answer}, reasoning: {reasoning}')
+
+            break
+        except Exception as e:
+            logger.error(f'Error with {model} on {client.api_key}: {e}', exc_info=True)
+            answer = f'Rate limit reached.'
+            reasoning = answer
+            continue
+
+    return answer, reasoning
 
 
 
@@ -295,10 +318,10 @@ def llm_api(messages: list[dict], files: str | list = [], provider: Literal['gro
             answer = genai_api(messages, files)
         except Exception as e:
             logger.error(f'google error: {e}', exc_info=True)
-            answer = groq_api(messages)
+            answer = groq_api_simple(messages)
     
     else:
-        answer = groq_api(messages)
+        answer = groq_api_simple(messages)
 
     logger.info(f'answer: {answer}, messages: {messages}, files: {files}, provider: {provider}, time: {datetime.now()-start_time}')
 

@@ -20,7 +20,8 @@ from ..agent.tools import (
     async_expressions_to_png,
     merge_pngs_vertically,
     wolfram_simple_api,
-    wolfram_short_answer
+    wolfram_short_answer,
+    groq_api_compound
 )
 from ..agent.agent import system_prompt, llm_select_tool, llm_use_tool
 from .database import (
@@ -43,6 +44,7 @@ bot_token = config.tg_bot.token
 class FSM(StatesGroup):
     processing = State()
     wolfram = State()
+    groq = State()
 
 
 bot = Bot(token=str(bot_token))
@@ -53,7 +55,7 @@ async def download_file_for_id(file_id, extension):
 
     file = await bot.get_file(file_id)
     file_path = str(file.file_path)
-    file_name = f'{text_to_hash(utc_time)}.{extension}'
+    file_name = f'{text_to_hash(utc_time())}.{extension}'
     await bot.download_file(file_path, file_name)
 
     return file_name
@@ -137,6 +139,18 @@ async def wolfram_command_handler(message: Message, state: FSMContext) -> None:
     logger.info(f'{message.from_user.full_name}({message.from_user.username}) - {current_state}')
 
 
+@dp.message(Command('groq'))
+async def groq_command_handler(message: Message, state: FSMContext) -> None:
+    current_state = await state.get_state()
+    if current_state == FSM.groq.state:
+        await state.clear()
+        await message.answer("Groq mode deactivated.")
+    else:
+        await state.set_state(FSM.groq)
+        await message.answer("All your questions will be answered by an agent from [groq](https://groq.com/). They have access to tools like Web Search, Code Execution, Visit Website, and Wolfram Alpha. Does not support images, but supports documents and audio. If you want to switch back to normal mode, type /groq.")
+    logger.info(f'{message.from_user.full_name}({message.from_user.username}) - {current_state}')
+
+
 @dp.message(StateFilter(FSM.wolfram))
 async def wolfram_message_handler(message: Message, state: FSMContext) -> None:
     await state.set_state(FSM.processing)
@@ -175,6 +189,55 @@ async def wolfram_message_handler(message: Message, state: FSMContext) -> None:
     await state.set_state(FSM.wolfram)
 
 
+
+@dp.message(StateFilter(FSM.groq))
+async def groq_message_handler(message: Message, state: FSMContext) -> None:
+    await state.set_state(FSM.processing)
+    input_files = []
+    if message.photo:
+        await message.answer("This mode does not support images.")
+        await state.set_state(FSM.groq)
+        return
+    elif message.document:
+        await message.answer('The document has been read. Reasoning...')
+        file_id = message.document.file_id
+        file = await bot.get_file(file_id)
+        file_path = file.file_path
+        file_name = file.file_path.split('/')[-1]
+        await bot.download_file(file_path, file_name)
+        input_files = [file_name]
+        text = str(message.caption) if message.caption else 'Describe the document or answer a previous question'
+
+    elif message.voice:
+        await message.answer('Recognizing audio...')
+        file_name = await download_file_for_id(file_id=message.voice.file_id, extension='mp3')
+        text = speech_recognition(file_name=file_name).strip()
+        os.remove(file_name)
+        await bot.edit_message_text(chat_id=message.chat.id, message_id=message.message_id+1, text=f'Recognized as "{text}". Reasoning...')
+    
+    if message.text:
+        await message.answer('Reasoning...')
+        text = str(message.text)
+
+    messages = sql_select_history(id=message.from_user.id)
+    messages.append({'role': 'user', 'content': text})
+    sql_insert_message(user_id=message.from_user.id, role='user', content=text)
+    logger.info(f'new message by {message.from_user.full_name}. messages: {text}, files: {input_files}')
+    
+    answer = groq_api_compound(messages=messages, files=input_files)[0]
+
+    logger.info(f'answer to {message.from_user.full_name}({text}): {answer}')
+    sql_insert_message(user_id=message.from_user.id, role='assistant', content=answer)
+
+    while answer:
+        try:
+            await message.answer(markdown_to_html(answer[:4000]), parse_mode='HTML')
+        except Exception as e:
+            print('Format error', e)
+            await message.answer(answer[:4000])
+        answer = answer[4000:]
+
+    await state.set_state(FSM.groq)
 
 @dp.message(StateFilter(default_state))
 async def message_handler(message: Message, state: FSMContext) -> None:
@@ -228,7 +291,7 @@ async def message_handler(message: Message, state: FSMContext) -> None:
 
         input_files = [file_name]
 
-        text = str(message.caption) if message.caption else 'Describe the document or answer a prevate question'
+        text = str(message.caption) if message.caption else 'Describe the document or answer a previous question'
 
         temp_message_id += 1
 

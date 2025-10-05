@@ -13,6 +13,7 @@ from .tools import (
     youtube_sum,
     latex_expression_to_png,
     imdb_api,
+    groq_api_simple
 )
 from ..config.logger import logger
 
@@ -168,15 +169,3 @@ def llm_full_answer(messages: list, files: list = [], provider: Literal['groq', 
 
     return answer
 
-
-if __name__ == '__main__':
-    messages = [{'role': 'system', 'content': system_prompt}]
-    while True:
-        user_input = input('Enter your question: ')
-        if user_input.lower() in ['exit', 'quit', 'stop']:
-            break
-        messages.append({'role': 'user', 'content': user_input})
-        answer = llm_full_answer(messages=messages)
-        print(f'Answer: {answer}')
-        messages.append({'role': 'assistant', 'content': answer})
-        
