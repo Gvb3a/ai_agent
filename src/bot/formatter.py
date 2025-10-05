@@ -14,6 +14,7 @@ from prettytable import PrettyTable
 from textwrap import wrap
 import random
 import string
+from bs4 import BeautifulSoup
 
 
 
@@ -577,9 +578,365 @@ def markdown_to_html(text: str) -> str:
     return text
 
 
+def smart_split(text: str, chars_per_string: int = 4096) -> list[str]:
+    r"""
+    Splits one string into multiple strings, with a maximum amount of `chars_per_string` characters per string.
+    This is very useful for splitting one giant message into multiples.
+    If `chars_per_string` > 4096: `chars_per_string` = 4096.
+    Splits by '\n', '. ' or ' ' in exactly this priority.
+
+    :param text: The text to split
+    :type text: :obj:`str`
+
+    :param chars_per_string: The number of maximum characters per part the text is split to.
+    :type chars_per_string: :obj:`int`
+
+    :return: The splitted text as a list of strings.
+    :rtype: :obj:`list` of :obj:`str`
+    """
+
+    def _text_before_last(substr: str) -> str:
+        return substr.join(part.split(substr)[:-1]) + substr
+
+    if chars_per_string > 4096: chars_per_string = 4096
+
+    parts = []
+    while True:
+        if len(text) < chars_per_string:
+            parts.append(text)
+            return parts
+
+        part = text[:chars_per_string]
+
+        
+        if "\n\n" in part:
+            part = _text_before_last("\n\n")
+        if "\n" in part:
+            part = _text_before_last("\n")
+        elif ". " in part:
+            part = _text_before_last(". ")
+        elif " " in part:
+            part = _text_before_last(" ")
+
+        parts.append(part)
+        text = text[len(part):]
+
+def split_html(text: str, max_length: int = 4090) -> list:
+    """
+    Split the given HTML text into chunks of maximum length, while preserving the integrity
+    of HTML tags. The function takes two arguments:
+    
+    Parameters:
+        - text (str): The HTML text to be split.
+        - max_length (int): The maximum length of each chunk. Default is 3072.
+        
+    Returns:
+        - list: A list of chunks, where each chunk is a part of the original text.
+    """
+    if len(text) < max_length: # Проверять лучше с max_length, а не с константой
+        return [text]
+
+    links = []
+    soup = BeautifulSoup(text, 'html.parser')
+    a_tags = soup.find_all('a')
+    for tag in a_tags:
+        tag_str = str(tag)
+        # Генерируем уникальный плейсхолдер, чтобы избежать случайных совпадений
+        random_string = f"__LINK_PLACEHOLDER_{''.join(random.choices(string.ascii_uppercase + string.digits, k=10))}__"
+        links.append((random_string, tag_str))
+        text = text.replace(tag_str, random_string, 1) # Заменяем только одно вхождение за раз
+
+    chunks = smart_split(text, max_length)
+    processed_chunks = []
+    
+    # Флаги, которые показывают, нужно ли открыть тег в НАЧАЛЕ следующего чанка
+    open_b_tag_next = False
+    open_code_tag_next = False
+    open_pre_tag_next = False
+
+    for chunk in chunks:
+        # Восстанавливаем ссылки
+        for random_string, tag in links:
+            chunk = chunk.replace(random_string, tag)
+
+        # Если предыдущий чанк закончился открытым тегом, добавляем открывающий тег в начало текущего
+        if open_b_tag_next:
+            chunk = '<b>' + chunk
+            open_b_tag_next = False # Сбрасываем флаг
+        
+        if open_code_tag_next:
+            chunk = '<code>' + chunk
+            open_code_tag_next = False # Сбрасываем флаг
+
+        if open_pre_tag_next:
+            chunk = '<pre>' + chunk
+            open_pre_tag_next = False # Сбрасываем флаг
+
+        # Считаем баланс тегов ВНУТРИ текущего чанка (уже с учетом добавленных)
+        # ИСПРАВЛЕНИЕ: ищем '<b' и '<code' вместо '<b>' и '<code>'
+        b_balance = chunk.count('<b>') - chunk.count('</b>')
+        code_balance = chunk.count('<code>') - chunk.count('</code>')
+        pre_balance = chunk.count('<pre>') - chunk.count('</pre>')
+
+        # Если баланс > 0, значит, в конце чанка остался незакрытый тег.
+        # Закрываем его и ставим флаг для следующего чанка.
+        if b_balance > 0:
+            chunk += '</b>' * b_balance # Закрываем столько тегов, сколько не хватило
+            open_b_tag_next = True
+        
+        if code_balance > 0:
+            chunk += '</code>' * code_balance
+            open_code_tag_next = True
+
+        if pre_balance > 0:
+            chunk += '</pre>' * pre_balance
+            open_pre_tag_next = True
+
+
+        processed_chunks.append(chunk)
+
+    return processed_chunks
+'''
+def split_html(text: str, max_length: int = 3072) -> list:
+    """
+    Split the given HTML text into chunks of maximum length, while preserving the integrity
+    of HTML tags. The function takes two arguments:
+    
+    Parameters:
+        - text (str): The HTML text to be split.
+        - max_length (int): The maximum length of each chunk. Default is 1500.
+        
+    Returns:
+        - list: A list of chunks, where each chunk is a part of the original text.
+        
+    Raises:
+        - AssertionError: If the length of the text is less than or equal to 299.
+    """
+
+    if len(text) < 300:
+        return [text,]
+
+    #найти и заменить все ссылки (тэг <a>) на рандомные слова с такой же длиной
+    links = []
+    soup = BeautifulSoup(text, 'html.parser')
+    a_tags = soup.find_all('a')
+    for tag in a_tags:
+        tag = str(tag)
+        random_string = ''.join(random.choice(string.ascii_uppercase+string.ascii_lowercase) for _ in range(len(tag)))
+        links.append((random_string, tag))
+        text = text.replace(tag, random_string)
+
+    # разбить текст на части
+    chunks = smart_split(text, max_length)
+    chunks2 = []
+    next_chunk_is_b = False
+    next_chunk_is_code = False
+    # в каждом куске проверить совпадение количества открывающих и закрывающих
+    # тэгов <b> <code> и заменить рандомные слова обратно на ссылки
+    for chunk in chunks:
+        for random_string, tag in links:
+            chunk = chunk.replace(random_string, tag)
+
+        b_tags = chunk.count('<b>')
+        b_close_tags = chunk.count('</b>')
+        code_tags = chunk.count('<code>')
+        code_close_tags = chunk.count('</code>')
+
+        if b_tags > b_close_tags:
+            chunk += '</b>'
+            next_chunk_is_b = True
+        elif b_tags < b_close_tags:
+            chunk = '<b>' + chunk
+            next_chunk_is_b = False
+
+        if code_tags > code_close_tags:
+            chunk += '</code>'
+            next_chunk_is_code = True
+        elif code_tags < code_close_tags:
+            chunk = '<code>' + chunk
+            next_chunk_is_code = False
+
+        # если нет открывающих и закрывающих тегов <code> а в предыдущем чанке 
+        # был добавлен закрывающий тег значит этот чанк целиком - код
+        if code_close_tags == 0 and code_tags == 0 and next_chunk_is_code:
+            chunk = '<code>' + chunk
+            chunk += '</code>'
+
+        # если нет открывающих и закрывающих тегов <b> а в предыдущем чанке 
+        # был добавлен закрывающий тег значит этот чанк целиком - <b>
+        if b_close_tags == 0 and b_tags == 0 and next_chunk_is_b:
+            chunk = '<b>' + chunk
+            chunk += '</b>'
+
+        chunks2.append(chunk)
+
+    return chunks2
+'''
+
+
 '''
 <<<========================== WARNING ==========================>>>
 All code in this file was taken from https://github.com/theurs/tb1.
 It's unreadable, I don't understand it, but it works perfectly.
 <<<========================== WARNING ==========================>>>
 '''
+
+text = '''## Ограничения на редактирование сообщений в Telegram Bot API
+
+Согласно данным из различных источников, включая официальную документацию и сообщества разработчиков:
+
+### 1. **Частота редактирования сообщений**
+
+- **Индивидуальные чаты**: не более **1 сообщения/секунду**.
+- **Группы и каналы**: до **20 сообщений/минуту** в одном чате.
+- **Глобальный лимит**: до **30 запросов/секунду** для всех типов запросов (включая `sendMessage`, `editMessage`, `deleteMessage`).
+
+### 2. **Ограничения на редактирование**
+
+- Сообщения можно редактировать **в течение 48 часов** после отправки.
+- В **Saved Messages** и в каналах/группах, где бот является администратором, ограничений на редактирование **нет**.
+
+### 3. **Пример использования**
+
+Если ваш бот обновляет меню каждые 5 секунд, он будет делать около **12 запросов/минуту**, что укладывается в лимиты. Однако при добавлении кнопок, которые触发ют `sendMessage`, необходимо учитывать общий лимит в **30 запросов/секунду**.
+
+### 4. **Практические советы**
+
+- Редактируйте сообщения **по запросу пользователя**, чтобы избежать превышения лимитов.
+- Используйте **callback_query** для обновления меню, чтобы снизить нагрузку.
+- Разбивайте массовые рассылки на **небольшие пакеты**, чтобы не превысить лимит **30 запросов/секунду**.
+
+### 5. **Проверка ограничений**
+
+Вы можете проверить, можно ли ещё редактировать сообщение, отправив запрос `editMessageText` и проверив ответ API:
+
+```python
+import requests
+
+TOKEN = 'YOUR_BOT_TOKEN'
+CHAT_ID = 123456789
+MESSAGE_ID = 42
+
+url = f'https://api.telegram.org/bot{TOKEN}/editMessageText'
+payload = {
+    'chat_id': CHAT_ID,
+    'message_id': MESSAGE_ID,
+    'text': 'Новое содержание'
+}
+r = requests.post(url, data=payload)
+print(r.json())
+```
+
+Если в ответе ошибка `MESSAGE_NOT_MODIFIED` или `MESSAGE_TOO_OLD`, значит, время редактирования истекло.
+
+### Итог
+
+- Редактировать сообщения можно **не чаще 1 раза в секунду** в индивидуальных чатах и **до 20 раз в минуту** в группах.
+- Общий лимит на все запросы к API — **30 запросов/секунду**.
+- Сообщения можно редактировать **только в течение 48 часов** после отправки, за исключением Saved Messages и каналов/групп с правами администратора.
+2025-10-05 18:03:51,041 | INFO     | tools.py:243 | groq_api_compound | Success: **Как часто можно менять (редактировать) сообщение, отправленное ботом, через Telegram Bot API**
+
+| Что меняем | Сколько времени можно редактировать | Как часто можно выполнять запросы редактирования |
+|------------|--------------------------------------|---------------------------------------------------|
+| **Обычное сообщение, отправленное ботом** | **до 48 часов** после отправки (после этого `editMessage…` вернёт ошибку *MESSAGE_TOO_OLD*) | **≤ 1 раз/сек** в отдельном чате. В группе/канале – **≤ 20 раз/минуту** в одном чате. |
+| **Saved Messages** (личные сообщения бота) | **без ограничения** | Ограничения по частоте такие же: ≤ 1 запрос/сек в личном чате. |
+| **Сообщения в каналах/супергруппах, где бот – администратор с правом «Edit messages»** | **без ограничения** (можно менять сколько угодно) | Ограничения по частоте такие же, но обычно их не достигают, т.к. редактируются редкие сообщения. |
+| **Сообщения, отправленные пользователем** | **не редактируются ботом** | — |
+
+### Ограничения по частоте запросов (rate‑limit)
+
+| Параметр | Значение | Как это влияет на редактирование |
+|----------|----------|-----------------------------------|
+| **Глобальный лимит** | ≈ **30 запросов/сек** (для всех методов Bot API) | Все запросы `editMessage…`, `sendMessage`, `deleteMessage` делятся между собой. Если в сумме превышаете 30 req/s – получите ошибку 429. |
+| **Лимит в одном чате** | **1 сообщение/сек** в личных чатах; **20 сообщений/минуту** в группе/канале | Поэтому в группе нельзя делать более 20 редактирований в минуту (включая любые `editMessage…`). |
+| **Лимит от одного пользователя** | **20 запросов/минуту** (если бот действует от имени пользователя) | В обычных бот‑сценариях обычно не касается, но стоит помнить при массовой рассылке. |
+
+### Что происходит, если превысить лимит
+
+- **429 Too Many Requests** – Telegram вернёт заголовок `Retry-After` (в секундах), после которого можно повторить запрос.
+- При попытке отредактировать слишком «старое» сообщение (старше 48 ч.) будет ошибка `MESSAGE_TOO_OLD`.
+
+### Как проверить, можно ли ещё редактировать
+
+```python
+import requests
+
+TOKEN = 'YOUR_BOT_TOKEN'
+CHAT_ID = 123456789
+MESSAGE_ID = 42
+
+url = f'https://api.telegram.org/bot{TOKEN}/editMessageText'
+payload = {
+    'chat_id': CHAT_ID,
+    'message_id': MESSAGE_ID,
+    'text': 'Новое содержание'
+}
+r = requests.post(url, data=payload)
+print(r.json())
+```
+
+- `ok: false` + `description: "Message is too old"` → время редактирования истекло.
+- `ok: false` + `description: "Message is not modified"` → вы пытаетесь записать тот же текст (избыточный запрос).
+
+### Краткое резюме
+
+1. **Время редактирования** – 48 ч. (если бот не администратор канала/группы и сообщение не в Saved Messages).  
+2. **Частота редактирования** – не более **1 раза в секунду** в личном чате и **20 раз в минуту** в одном групповом чате.  
+3. **Глобальный лимит** – **30 запросов/сек** для всех методов API (включая `editMessage…`).  
+4. При превышении любого из лимитов Telegram вернёт ошибку 429, после чего следует подождать, указанный в `Retry-After` интервал.
+
+Эти ограничения позволяют планировать обновление меню, динамические сообщения и любые другие операции редактирования без риска блокировки. Если нужно обновлять сообщение чаще (например, каждую секунду в группе), делайте это только в рамках указанных лимитов или используйте отдельный бот‑администратор, который будет выполнять редактирование в канале (где ограничений по времени нет)., reasoning: None
+2025-10-05 18:03:51,116 | INFO     | bot.py:244 | groq_message_handler | answer to Boris(Не можно ли еще, а как часто): **Как часто можно менять (редактировать) сообщение, отправленное ботом, через Telegram Bot API**
+
+| Что меняем | Сколько времени можно редактировать | Как часто можно выполнять запросы редактирования |
+|------------|--------------------------------------|---------------------------------------------------|
+| **Обычное сообщение, отправленное ботом** | **до 48 часов** после отправки (после этого `editMessage…` вернёт ошибку *MESSAGE_TOO_OLD*) | **≤ 1 раз/сек** в отдельном чате. В группе/канале – **≤ 20 раз/минуту** в одном чате. |
+| **Saved Messages** (личные сообщения бота) | **без ограничения** | Ограничения по частоте такие же: ≤ 1 запрос/сек в личном чате. |
+| **Сообщения в каналах/супергруппах, где бот – администратор с правом «Edit messages»** | **без ограничения** (можно менять сколько угодно) | Ограничения по частоте такие же, но обычно их не достигают, т.к. редактируются редкие сообщения. |
+| **Сообщения, отправленные пользователем** | **не редактируются ботом** | — |
+
+### Ограничения по частоте запросов (rate‑limit)
+
+| Параметр | Значение | Как это влияет на редактирование |
+|----------|----------|-----------------------------------|
+| **Глобальный лимит** | ≈ **30 запросов/сек** (для всех методов Bot API) | Все запросы `editMessage…`, `sendMessage`, `deleteMessage` делятся между собой. Если в сумме превышаете 30 req/s – получите ошибку 429. |
+| **Лимит в одном чате** | **1 сообщение/сек** в личных чатах; **20 сообщений/минуту** в группе/канале | Поэтому в группе нельзя делать более 20 редактирований в минуту (включая любые `editMessage…`). |
+| **Лимит от одного пользователя** | **20 запросов/минуту** (если бот действует от имени пользователя) | В обычных бот‑сценариях обычно не касается, но стоит помнить при массовой рассылке. |
+
+### Что происходит, если превысить лимит
+
+- **429 Too Many Requests** – Telegram вернёт заголовок `Retry-After` (в секундах), после которого можно повторить запрос.
+- При попытке отредактировать слишком «старое» сообщение (старше 48 ч.) будет ошибка `MESSAGE_TOO_OLD`.
+
+### Как проверить, можно ли ещё редактировать
+
+```python
+import requests
+
+TOKEN = 'YOUR_BOT_TOKEN'
+CHAT_ID = 123456789
+MESSAGE_ID = 42
+
+url = f'https://api.telegram.org/bot{TOKEN}/editMessageText'
+payload = {
+    'chat_id': CHAT_ID,
+    'message_id': MESSAGE_ID,
+    'text': 'Новое содержание'
+}
+r = requests.post(url, data=payload)
+print(r.json())
+```
+
+- `ok: false` + `description: "Message is too old"` → время редактирования истекло.
+- `ok: false` + `description: "Message is not modified"` → вы пытаетесь записать тот же текст (избыточный запрос).
+
+### Краткое резюме
+
+1. **Время редактирования** – 48 ч. (если бот не администратор канала/группы и сообщение не в Saved Messages).  
+2. **Частота редактирования** – не более **1 раза в секунду** в личном чате и **20 раз в минуту** в одном групповом чате.  
+3. **Глобальный лимит** – **30 запросов/сек** для всех методов API (включая `editMessage…`).  
+4. При превышении любого из лимитов Telegram вернёт ошибку 429, после чего следует подождать, указанный в `Retry-After` интервал.
+
+Эти ограничения позволяют планировать обновление меню, динамические сообщения и любые другие операции редактирования без риска блокировки. Если нужно обновлять сообщение чаще (например, каждую секунду в группе), делайте это только в рамках указанных лимитов или используйте отдельный бот‑администратор, который будет выполнять редактирование в канале (где ограничений по времени нет).'''
+
+print(*split_html(markdown_to_html(text)),sep='\n\n\n')

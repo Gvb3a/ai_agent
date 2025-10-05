@@ -21,7 +21,8 @@ from ..agent.tools import (
     merge_pngs_vertically,
     wolfram_simple_api,
     wolfram_short_answer,
-    groq_api_compound
+    groq_api_compound,
+    groq_api_stream
 )
 from ..agent.agent import system_prompt, llm_select_tool, llm_use_tool
 from .database import (
@@ -33,7 +34,7 @@ from .database import (
     text_to_hash,
 )
 from ..config.logger import logger
-from .formatter import markdown_to_html
+from .formatter import markdown_to_html, split_html
 from ..config.config import load_config, Config
     
 
@@ -45,6 +46,7 @@ class FSM(StatesGroup):
     processing = State()
     wolfram = State()
     groq = State()
+    gpt_oss = State()
 
 
 bot = Bot(token=str(bot_token))
@@ -127,6 +129,7 @@ async def clear_state_callback(callback: CallbackQuery, state: FSMContext) -> No
     await callback.answer('State cleared')
 
 
+
 @dp.message(Command('wolfram'))
 async def wolfram_command_handler(message: Message, state: FSMContext) -> None:
     current_state = await state.get_state()
@@ -144,11 +147,23 @@ async def groq_command_handler(message: Message, state: FSMContext) -> None:
     current_state = await state.get_state()
     if current_state == FSM.groq.state:
         await state.clear()
-        await message.answer("Groq mode deactivated.")
+        await message.answer("Groq agent deactivated.")
     else:
         await state.set_state(FSM.groq)
-        await message.answer("All your questions will be answered by an agent from groq. They have access to tools like *Web Search*, *Code Execution* and *Visit Website*. Does not support images, but supports documents and audio. Stable and fast. If you want to switch back to normal mode, type /groq.",
+        await message.answer("Now you will be assisted by Groq — a fast and stable agent with access to *Web Search*, *Code Execution* and *Website Visits*. Does not support images, but supports documents and audio. To switch back, type /groq.",
                              parse_mode='Markdown')
+    logger.info(f'{message.from_user.full_name}({message.from_user.username}) - {current_state}')
+
+
+@dp.message(Command('gpt_oss'))
+async def gpt_oss_command_handler(message: Message, state: FSMContext) -> None:
+    current_state = await state.get_state()
+    if current_state == FSM.gpt_oss.state:
+        await state.clear()
+        await message.answer("GPT-OSS model deactivated.")
+    else:
+        await state.set_state(FSM.gpt_oss)
+        await message.answer("Now you will be assisted by GPT-OSS — OpenAI's fast and intelligent model without access to tools. Does not support images, but supports documents and audio. To switch back, type /gpt_oss.")
     logger.info(f'{message.from_user.full_name}({message.from_user.username}) - {current_state}')
 
 
@@ -190,26 +205,12 @@ async def wolfram_message_handler(message: Message, state: FSMContext) -> None:
     await state.set_state(FSM.wolfram)
 
 
-def smart_split(text, max_length=4000):
-    if len(text) <= max_length:
-        return text, ""
-    
-    split_chars = ['\n\n', '\n', '. ', '> ', '</']
-    
-    for char in split_chars:
-        pos = text.rfind(char, 0, max_length)
-        if pos != -1 and pos > 100:
-            return text[:pos + len(char)], text[pos + len(char):]
-
-    return text[:max_length], text[max_length:]
-
-
 @dp.message(StateFilter(FSM.groq))
 async def groq_message_handler(message: Message, state: FSMContext) -> None:
     await state.set_state(FSM.processing)
     input_files = []
     if message.photo:
-        await message.answer("This mode does not support images.")
+        await message.answer("This model does not support images.")
         await state.set_state(FSM.groq)
         return
     elif message.document:
@@ -246,36 +247,84 @@ async def groq_message_handler(message: Message, state: FSMContext) -> None:
     sql_insert_message(user_id=message.from_user.id, role='assistant', content=answer)
 
     
-    while answer:
+    for part in split_html(markdown_to_html(answer)):
         try:
-            chunk, answer = smart_split(answer)
-            
-            if not chunk:
-                break
-
-            formatted = markdown_to_html(chunk)
-            
-            if len(formatted) > 4096:
-                chunk, answer = smart_split(chunk, 3000)
-                
-                if not chunk:
-                    break
-                
-                formatted = markdown_to_html(chunk)
-            
-            await message.answer(formatted, parse_mode='HTML')
-
-        except Exception as e:
-            print('Format error', e)
-            
-            chunk, answer = smart_split(answer, 3500)
-            
-            if not chunk:
-                break
-                
-            await message.answer(chunk)
+            await message.answer(part, parse_mode='HTML')
+        except:
+            await message.answer(part)
 
     await state.set_state(FSM.groq)
+
+
+
+@dp.message(StateFilter(FSM.gpt_oss))
+async def gpt_oss_message_handler(message: Message, state: FSMContext) -> None:
+    await state.set_state(FSM.processing)
+    input_files = []
+    message_id_for_edit = message.message_id + 1
+    if message.photo:
+        await message.answer("This model does not support images.")
+        await state.set_state(FSM.gpt_oss)
+        return
+    elif message.voice:
+        await message.reply('Recognizing audio...')
+        file_name = await download_file_for_id(file_id=message.voice.file_id, extension='mp3')
+        text = speech_recognition(file_name=file_name).strip()
+        os.remove(file_name)
+        await bot.edit_message_text(chat_id=message.chat.id, message_id=message.message_id+1, text=f'Recognized as "{text}"')
+        message_id_for_edit += 1
+    
+    if message.text:
+        text = str(message.text)
+
+    messages = sql_select_history(id=message.from_user.id)
+    messages.append({'role': 'user', 'content': text})
+    sql_check_user(user_id=message.from_user.id, telegram_name=message.from_user.full_name, telegram_username=message.from_user.username)
+    sql_insert_message(user_id=message.from_user.id, role='user', content=text)
+    logger.info(f'new message by {message.from_user.full_name}. messages: {text}')
+    
+    
+    await message.answer("⏳")
+    full_answer = ""
+    last_update_time = asyncio.get_event_loop().time()
+    prev_len = 1
+
+    async for chunk in groq_api_stream(messages=messages):
+        full_answer += chunk
+        current_time = asyncio.get_event_loop().time()
+        
+        if current_time - last_update_time > 0.2:
+            chunks = split_html(markdown_to_html(full_answer))
+            if len(chunks) > prev_len:
+                prev_len += 1
+                try:
+                    await bot.edit_message_text(text=chunks[-2], message_id=message_id_for_edit+len(chunks) - 2, parse_mode='HTML', chat_id=message.from_user.id)
+                except:
+                    await bot.edit_message_text(text=chunks[-2], message_id=message_id_for_edit+len(chunks) - 2, chat_id=message.from_user.id)
+                await message.answer("...")
+            try:
+                await bot.edit_message_text(text=chunks[-1], message_id=message_id_for_edit+len(chunks) - 1, parse_mode='HTML', chat_id=message.from_user.id)
+            except:
+                await bot.edit_message_text(text=chunks[-1], message_id=message_id_for_edit+len(chunks) - 1, chat_id=message.from_user.id)
+            last_update_time = asyncio.get_event_loop().time()
+    else:
+        chunks = split_html(markdown_to_html(full_answer))
+        if len(chunks) > prev_len:
+            prev_len += 1
+            await message.answer("...")
+        try:
+            await bot.edit_message_text(text=chunks[-1], message_id=message_id_for_edit+len(chunks) - 1, parse_mode='HTML', chat_id=message.from_user.id)
+        except:
+            await bot.edit_message_text(text=chunks[-1], message_id=message_id_for_edit+len(chunks) - 1, chat_id=message.from_user.id)
+        last_update_time = asyncio.get_event_loop().time()
+
+    logger.info(f'{message.from_user.full_name}({message.from_user.username}) - {text} - {full_answer}')
+    sql_insert_message(user_id=message.from_user.id, role='assistant', content=full_answer)
+    await state.set_state(FSM.gpt_oss)
+
+                
+
+
 
 @dp.message(StateFilter(default_state))
 async def message_handler(message: Message, state: FSMContext) -> None:

@@ -95,9 +95,11 @@ def merge_pngs_vertically(image_paths: list) -> str:
 import PyPDF2
 import docx
 from groq import Groq
+from groq import AsyncGroq
 
 groq_api_keys = config.api.groq_key
 groq_client = [Groq(api_key=key) for key in groq_api_keys]
+groq_client_async = [AsyncGroq(api_key=key) for key in groq_api_keys]
 
 
 def speech_recognition(file_name: str) -> str:  # TODO: local_whisper
@@ -228,6 +230,27 @@ def groq_api_simple(messages: list, model: str = 'openai/gpt-oss-20b') -> str:
 
     return answer
 
+
+async def groq_api_stream(messages, model="openai/gpt-oss-120b"):
+    error = False
+    for client in groq_client_async:
+        try:    
+            stream = await client.chat.completions.create(
+                messages=messages,
+                model=model,
+                stream=True,
+            )
+            
+            async for chunk in stream:
+                content = chunk.choices[0].delta.content
+                if content:
+                    yield content
+        except Exception as e:
+            logger.error(f'Error with {model} on {client.api_key}: {e}', exc_info=True)
+            error = True
+            continue
+    if error:
+        yield 'Error'
 
 def groq_api_compound(messages: list, model: Literal['groq/compound', 'groq/compound-mini'] = 'groq/compound', files: list = []) -> str:
     for client in groq_client:
