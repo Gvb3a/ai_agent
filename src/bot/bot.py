@@ -147,7 +147,8 @@ async def groq_command_handler(message: Message, state: FSMContext) -> None:
         await message.answer("Groq mode deactivated.")
     else:
         await state.set_state(FSM.groq)
-        await message.answer("All your questions will be answered by an agent from [groq](https://groq.com/). They have access to tools like Web Search, Code Execution, Visit Website, and Wolfram Alpha. Does not support images, but supports documents and audio. If you want to switch back to normal mode, type /groq.")
+        await message.answer("All your questions will be answered by an agent from groq. They have access to tools like *Web Search*, *Code Execution* and *Visit Website*. Does not support images, but supports documents and audio. Stable and fast. If you want to switch back to normal mode, type /groq.",
+                             parse_mode='Markdown')
     logger.info(f'{message.from_user.full_name}({message.from_user.username}) - {current_state}')
 
 
@@ -189,6 +190,19 @@ async def wolfram_message_handler(message: Message, state: FSMContext) -> None:
     await state.set_state(FSM.wolfram)
 
 
+def smart_split(text, max_length=4000):
+    if len(text) <= max_length:
+        return text, ""
+    
+    split_chars = ['\n\n', '\n', '. ', '> ', '</']
+    
+    for char in split_chars:
+        pos = text.rfind(char, 0, max_length)
+        if pos != -1 and pos > 100:
+            return text[:pos + len(char)], text[pos + len(char):]
+
+    return text[:max_length], text[max_length:]
+
 
 @dp.message(StateFilter(FSM.groq))
 async def groq_message_handler(message: Message, state: FSMContext) -> None:
@@ -221,21 +235,45 @@ async def groq_message_handler(message: Message, state: FSMContext) -> None:
 
     messages = sql_select_history(id=message.from_user.id)
     messages.append({'role': 'user', 'content': text})
+    sql_check_user(user_id=message.from_user.id, telegram_name=message.from_user.full_name, telegram_username=message.from_user.username)
     sql_insert_message(user_id=message.from_user.id, role='user', content=text)
     logger.info(f'new message by {message.from_user.full_name}. messages: {text}, files: {input_files}')
     
     answer = groq_api_compound(messages=messages, files=input_files)[0]
+    await bot.delete_message(chat_id=message.chat.id, message_id=message.message_id+1)
 
     logger.info(f'answer to {message.from_user.full_name}({text}): {answer}')
     sql_insert_message(user_id=message.from_user.id, role='assistant', content=answer)
 
+    
     while answer:
         try:
-            await message.answer(markdown_to_html(answer[:4000]), parse_mode='HTML')
+            chunk, answer = smart_split(answer)
+            
+            if not chunk:
+                break
+
+            formatted = markdown_to_html(chunk)
+            
+            if len(formatted) > 4096:
+                chunk, answer = smart_split(chunk, 3000)
+                
+                if not chunk:
+                    break
+                
+                formatted = markdown_to_html(chunk)
+            
+            await message.answer(formatted, parse_mode='HTML')
+
         except Exception as e:
             print('Format error', e)
-            await message.answer(answer[:4000])
-        answer = answer[4000:]
+            
+            chunk, answer = smart_split(answer, 3500)
+            
+            if not chunk:
+                break
+                
+            await message.answer(chunk)
 
     await state.set_state(FSM.groq)
 

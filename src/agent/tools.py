@@ -223,7 +223,7 @@ def groq_api_simple(messages: list, model: str = 'openai/gpt-oss-20b') -> str:
             break
         except Exception as e:
             logger.error(f'Error with {model} on {client.api_key}: {e}', exc_info=True)
-            answer = f'Rate limit reached.'
+            answer = f'Error'
             continue
 
     return answer
@@ -245,7 +245,7 @@ def groq_api_compound(messages: list, model: Literal['groq/compound', 'groq/comp
             break
         except Exception as e:
             logger.error(f'Error with {model} on {client.api_key}: {e}', exc_info=True)
-            answer = f'Rate limit reached.'
+            answer = f'Error'
             reasoning = answer
             continue
 
