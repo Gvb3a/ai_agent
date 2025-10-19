@@ -1,30 +1,23 @@
+import os
+import re
+import asyncio
+from time import sleep
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command, StateFilter
 from aiogram.types import Message, CallbackQuery, FSInputFile, InputMediaPhoto, InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import default_state, State, StatesGroup
-import os
-import re
-from time import sleep
-import asyncio
 
 
-from ..agent.tools import (
-    speech_recognition,
-    llm_api,
-    files_to_text,
-    code_interpreter,
-    detect_language,
-    translate,
-    latex_to_pdf,
-    async_expressions_to_png,
-    merge_pngs_vertically,
-    wolfram_simple_api,
-    wolfram_short_answer,
-    groq_api_compound,
-    groq_api_stream
-)
+from .formatter import markdown_to_html, split_html
 from ..agent.agent import system_prompt, llm_select_tool, llm_use_tool
+from ..agent.llm.llm import llm_api
+from ..agent.llm.groq import groq_api_compound, groq_api_stream
+from ..agent.tools.wolfram import wolfram_simple_api
+from ..agent.tools.code_interpreter import code_interpreter
+from ..agent.tools.translate import detect_language, translate
+from ..agent.tools.latex import latex_to_pdf, async_expressions_to_png
+from ..agent.tools.file_utils import files_to_text, speech_recognition, merge_pngs_vertically
 from .database import (
     sql_check_user,
     sql_select_history,
@@ -34,7 +27,6 @@ from .database import (
     text_to_hash,
 )
 from ..config.logger import logger
-from .formatter import markdown_to_html, split_html
 from ..config.config import load_config, Config
     
 
@@ -251,10 +243,19 @@ async def groq_message_handler(message: Message, state: FSMContext) -> None:
         try:
             await message.answer(part, parse_mode='HTML')
         except:
-            await message.answer(part)
+            inline_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text='Fix formatting', callback_data=f'fix_formatting')]])
+            await message.answer(part, reply_markup=inline_keyboard)
 
     await state.set_state(FSM.groq)
 
+
+async def edit_message_with_html(text: str, message_id: int, chat_id: int):
+    try:
+        await bot.edit_message_text(text=text, message_id=message_id, parse_mode='HTML', chat_id=chat_id)
+    except Exception as e:
+        print('Parse mode error:', e, text)
+        inline_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text='Fix formatting', callback_data=f'fix_formatting')]])
+        await bot.edit_message_text(text=text, message_id=message_id, chat_id=chat_id, reply_markup=inline_keyboard)
 
 
 @dp.message(StateFilter(FSM.gpt_oss))
@@ -293,30 +294,21 @@ async def gpt_oss_message_handler(message: Message, state: FSMContext) -> None:
         full_answer += chunk
         current_time = asyncio.get_event_loop().time()
         
-        if current_time - last_update_time > 0.2:
+        if current_time - last_update_time > 0.25:
             chunks = split_html(markdown_to_html(full_answer))
             if len(chunks) > prev_len:
                 prev_len += 1
-                try:
-                    await bot.edit_message_text(text=chunks[-2], message_id=message_id_for_edit+len(chunks) - 2, parse_mode='HTML', chat_id=message.from_user.id)
-                except:
-                    await bot.edit_message_text(text=chunks[-2], message_id=message_id_for_edit+len(chunks) - 2, chat_id=message.from_user.id)
+                await edit_message_with_html(text=chunks[-2], message_id=message_id_for_edit+len(chunks) - 2, chat_id=message.from_user.id)
                 await message.answer("...")
-            try:
-                await bot.edit_message_text(text=chunks[-1], message_id=message_id_for_edit+len(chunks) - 1, parse_mode='HTML', chat_id=message.from_user.id)
-            except:
-                await bot.edit_message_text(text=chunks[-1], message_id=message_id_for_edit+len(chunks) - 1, chat_id=message.from_user.id)
+            await edit_message_with_html(text=chunks[-1], message_id=message_id_for_edit+len(chunks) - 1, chat_id=message.from_user.id)
             last_update_time = asyncio.get_event_loop().time()
     else:
         chunks = split_html(markdown_to_html(full_answer))
         if len(chunks) > prev_len:
             prev_len += 1
             await message.answer("...")
-        try:
-            await bot.edit_message_text(text=chunks[-1], message_id=message_id_for_edit+len(chunks) - 1, parse_mode='HTML', chat_id=message.from_user.id)
-        except:
-            await bot.edit_message_text(text=chunks[-1], message_id=message_id_for_edit+len(chunks) - 1, chat_id=message.from_user.id)
-        last_update_time = asyncio.get_event_loop().time()
+        await edit_message_with_html(text=chunks[-1], message_id=message_id_for_edit+len(chunks) - 1, chat_id=message.from_user.id)
+
 
     logger.info(f'{message.from_user.full_name}({message.from_user.username}) - {text} - {full_answer}')
     sql_insert_message(user_id=message.from_user.id, role='assistant', content=full_answer)
@@ -523,6 +515,54 @@ async def message_handler(message: Message, state: FSMContext) -> None:
 
 
 # <======================== CALLBACKS ========================>
+@dp.callback_query(F.data == 'fix_formatting')
+async def callback_fix_formatting(callback: CallbackQuery):
+    message = callback.message.text
+    promt = '''You are a specialized HTML validator for Telegram messages. Your sole task is to fix incorrect HTML formatting in the text.
+
+CRITICALLY IMPORTANT:
+- Output ONLY the corrected HTML code, without explanations, comments, or additional text
+- Your response will be sent directly to the user
+
+TASKS:
+1. Fix all broken HTML tags (unclosed, truncated, missing opening brackets)
+2. Restore proper tag nesting
+3. Ensure every opening tag has a closing tag
+4. Preserve all original text and content without changes
+
+SUPPORTED TELEGRAM TAGS:
+<b>, <i>, <u>, <s>, <code>, <pre>, <a href="">, <tg-spoiler>
+
+COMMON ERRORS TO FIX:
+- `pre><code>` → `<pre><code>`
+- `</pre>` without `</code>` → `</code></pre>`
+- `<code` → `<code>`
+- `b>text</b>` → `<b>text</b>`
+- Tags truncated at message boundaries
+- Incorrect closing order for nested tags
+
+RULES:
+✓ Preserve original text completely
+✓ Fix only tag structure
+✓ If tag is truncated at start - restore opening tag
+✓ If tag is truncated at end - add closing tag
+✓ Maintain proper nesting: <b><i>text</i></b> ✓, <b><i>text</b></i> ✗
+
+RESPONSE FORMAT:
+[Only corrected HTML, nothing else]
+
+Text to fix:\n''' + message
+    new_message = llm_api(promt)
+    try:
+        await callback.message.edit_text(new_message, parse_mode='HTML')
+        await callback.answer()
+    except Exception as e:
+        try:
+            await callback.message.answer(new_message, parse_mode='HTML')
+        except Exception as e:
+            await callback.answer('Nothing worked out')
+
+
 @dp.callback_query(F.data[:17] == 'translate_message')
 async def callback_translate_message(callback: CallbackQuery):
     'translate_message-{message_hash}-{user_text_language}'

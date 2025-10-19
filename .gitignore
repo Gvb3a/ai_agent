@@ -1,10 +1,10 @@
 .venv
 .env
+.devdbrc
 
 __pycache__/
 
 
 *.db
-*.json
 *.pickle
 *.log
