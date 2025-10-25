@@ -72,4 +72,4 @@ def imdb_api(title: str) -> tuple[dict, list[str]]:
     result, poster = imdb_get_film_by_id(imdb_id)
 
     logger.info(f'Success result for {title}')
-    return result, poster
+    return result

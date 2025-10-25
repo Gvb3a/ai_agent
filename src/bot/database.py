@@ -1,9 +1,11 @@
+import os
+import json
 import sqlite3
 from typing import Literal
+from hashlib import sha256
 from datetime import datetime, timezone
 from ..config.logger import logger
 from ..config.config import load_config
-from hashlib import sha256
 
 
 config = load_config()
@@ -106,4 +108,33 @@ def sql_get_message_by_hash(message_hash: str):
     return content
 
 
+def sql_clear_user_history(user_id: int):
+    connection = sqlite3.connect(config.database.path)
+    cursor = connection.cursor()
+    history = cursor.execute('SELECT role, content, time FROM Messages WHERE user_id = ? ORDER BY time', (user_id,)).fetchall()
+    dialog = [{'role': i[0], 'content': i[1], 'time': i[2]} for i in history]
+    if dialog:
+        logs_path = os.path.join(config.base_dir, 'src', 'logs', 'deleted_dialogues.json')
+        data = []
+        if os.path.exists(logs_path) and os.path.getsize(logs_path) > 0:
+            try:
+                with open(logs_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    if not isinstance(data, list):
+                        data = [data]
+            except json.JSONDecodeError:
+                data = []
+
+        # append new entry and write back as a JSON array
+        data.append({f"{user_id}_{utc_time()}": dialog})
+        with open(logs_path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+
+    cursor.execute('DELETE FROM Messages WHERE user_id = ?', (user_id,))
+    connection.commit()
+    connection.close()
+    logger.info(f'Cleared history for {user_id}')
+
+
 sql_launch()
+sql_clear_user_history(2117601484)

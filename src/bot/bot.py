@@ -8,7 +8,6 @@ from aiogram.types import Message, CallbackQuery, FSInputFile, InputMediaPhoto, 
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import default_state, State, StatesGroup
 
-
 from .formatter import markdown_to_html, split_html
 from ..agent.agent import system_prompt, llm_select_tool, llm_use_tool
 from ..agent.llm.llm import llm_api
@@ -19,12 +18,13 @@ from ..agent.tools.translate import detect_language, translate
 from ..agent.tools.latex import latex_to_pdf, async_expressions_to_png
 from ..agent.tools.file_utils import files_to_text, speech_recognition, merge_pngs_vertically
 from .database import (
+    utc_time,
+    text_to_hash,
     sql_check_user,
     sql_select_history,
     sql_insert_message,
+    sql_clear_user_history,
     sql_get_message_by_hash,
-    utc_time,
-    text_to_hash,
 )
 from ..config.logger import logger
 from ..config.config import load_config, Config
@@ -39,6 +39,7 @@ class FSM(StatesGroup):
     wolfram = State()
     groq = State()
     gpt_oss = State()
+    gemini = State()
 
 
 bot = Bot(token=str(bot_token))
@@ -57,7 +58,9 @@ async def download_file_for_id(file_id, extension):
 
 @dp.message(CommandStart())  # /start command handler
 async def start_command_handler(message: Message) -> None:
-    await message.answer('Hi! I am an AI agent that can search for information on the internet, use a WolfraAlpha (calculator), summarize youtube videos, compile latex files, generate pictures, use IMDB and images and execute python code. How can I help you today?  \n\n[GitHub](https://github.com/Gvb3a/assistant)', parse_mode='Markdown')
+    user_language_code = message.from_user.language_code
+    start_message = config.tg_bot.messages.start.get(user_language_code, config.tg_bot.messages.start['en'])
+    await message.answer(start_message, parse_mode='Markdown')
     logger.info(f'{message.from_user.full_name}({message.from_user.username})')
 
 
@@ -121,7 +124,21 @@ async def clear_state_callback(callback: CallbackQuery, state: FSMContext) -> No
     await callback.answer('State cleared')
 
 
+@dp.message(Command('clear'))
+async def clear_command_handler(message: Message) -> None:
+    sql_check_user(message.from_user.full_name, message.from_user.username, message.from_user.id)
+    sql_clear_user_history(message.from_user.id)
+    await message.answer("Your history has been cleared.")
+    logger.info(f'{message.from_user.full_name}({message.from_user.username}) - clear history')
 
+
+@dp.message(Command('default'))
+async def default_command_handler(message: Message, state: FSMContext) -> None:
+    await state.clear()
+    await message.answer("Now you will be answered by a standard agent. Very smart and functional, but slow.")
+    logger.info(f'{message.from_user.full_name}({message.from_user.username}) - default state')
+    
+    
 @dp.message(Command('wolfram'))
 async def wolfram_command_handler(message: Message, state: FSMContext) -> None:
     current_state = await state.get_state()
@@ -157,6 +174,19 @@ async def gpt_oss_command_handler(message: Message, state: FSMContext) -> None:
         await state.set_state(FSM.gpt_oss)
         await message.answer("Now you will be assisted by GPT-OSS — OpenAI's fast and intelligent model without access to tools. Does not support images, but supports documents and audio. To switch back, type /gpt_oss.")
     logger.info(f'{message.from_user.full_name}({message.from_user.username}) - {current_state}')
+
+
+@dp.message(Command('gemini'))
+async def gemini_command_handler(message: Message, state: FSMContext) -> None:
+    current_state = await state.get_state()
+    if current_state == FSM.gemini.state:
+        await state.clear()
+        await message.answer("Gemini model deactivated.")
+    else:
+        await state.set_state(FSM.gemini)
+        await message.answer("Now you will be assisted by Gemini — Google's smartest model. To switch back, type /gemini.")
+    logger.info(f'{message.from_user.full_name}({message.from_user.username}) - {current_state}')
+
 
 
 @dp.message(StateFilter(FSM.wolfram))

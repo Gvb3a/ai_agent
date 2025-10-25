@@ -1,17 +1,24 @@
-from dataclasses import dataclass
-from environs import Env
-from colorama import Fore, Style, init
 import os
+import json
+from environs import Env
+from dataclasses import dataclass
+from colorama import Fore, Style, init
 
 
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
 
 @dataclass
+class Messages:
+    start: dict[str, str]
+    #help: dict[str, str]
+
+@dataclass
 class TgBot:
     token: str
     admin_ids: list[int]
     support_tg: str
+    messages: Messages
 
 
 @dataclass
@@ -43,7 +50,8 @@ class Config:
     tg_bot: TgBot
     database: Database
     logs: Logs
-    api: API
+    api: API 
+    base_dir: str
 
 
 def load_config(path: str | None = None) -> Config:
@@ -59,12 +67,15 @@ def load_config(path: str | None = None) -> Config:
         if not env.str(key, default=''):
             print(Fore.RED + Style.BRIGHT + f"WARNING: '{key}' is not found in the environment. Functionality can be limited.")
 
-    
+    with open(os.path.join(BASE_DIR, "src", "config", "messages.json"), "r", encoding="utf-8") as f:
+        messages = Messages(**json.load(f))
+
     return Config(
         tg_bot=TgBot(
             token=env.str("BOT_TOKEN", default=""),
             admin_ids=env.list("ADMIN_IDS", subcast=int, default=[]),
-            support_tg=env.str("SUPPORT_TG_USERNAME", default="")
+            support_tg=env.str("SUPPORT_TG_USERNAME", default=""),
+            messages=messages
         ),
         database=Database(
             path=os.path.join(BASE_DIR, "src", "bot", "database.db")
@@ -83,7 +94,8 @@ def load_config(path: str | None = None) -> Config:
             todoist_key=env.str("TODOIST_API_KEY", default=""),
             detect_language_key=env.str("DETECT_LANGUAGE_API_KEY", default=""),
             e2b_key=env.str("E2B_API_KEY", default="")
-        )
+        ),
+        base_dir=BASE_DIR
     )
 
 

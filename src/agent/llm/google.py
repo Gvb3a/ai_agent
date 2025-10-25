@@ -1,20 +1,25 @@
 import os
+import asyncio
 import PIL.Image
-import google.generativeai as genai
+from google import genai
+from google.genai import types
+from google import generativeai
 from ..tools.file_utils import files_to_text
 from ...config.config import load_config
+from ...config.logger import logger
 
 
 config = load_config()
-os.environ["GOOGLE_API_KEY"] = config.api.gemini_key
-genai.configure(api_key=os.environ['GOOGLE_API_KEY'])
-google_model = genai.GenerativeModel("gemini-2.5-flash")
-os.environ['GRPC_DNS_RESOLVER'] = 'native'
 
+os.environ["GOOGLE_API_KEY"] = config.api.gemini_key
+os.environ['GRPC_DNS_RESOLVER'] = 'native'
+generativeai.configure(api_key=os.environ['GOOGLE_API_KEY'])
+
+google_model = generativeai.GenerativeModel("gemini-2.5-flash")
+client = genai.Client(api_key=os.environ["GOOGLE_API_KEY"])
 
 
 def genai_api(messages: list[dict] | str, files: list | str = []) -> str:
-    # TODO:  model: Literal['google', 'google_flash', 'google_thinking'] = 'google_flash'
     if type(messages) == str:
         user_message = messages
         formatted_history = []
@@ -42,9 +47,11 @@ def genai_api(messages: list[dict] | str, files: list | str = []) -> str:
         else:
             user_message += files_to_text(file_path)
 
+    if image_files:
         response = chat.send_message([user_message] + image_files)
     else:
         response = chat.send_message(user_message)
 
-
+    logger.info(f"Query: {user_message}, Response: {response.text}")
     return response.text
+

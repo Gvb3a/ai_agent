@@ -1,10 +1,10 @@
-.venv
 .env
+.venv
 .devdbrc
-
 __pycache__/
 
 
 *.db
-*.pickle
 *.log
+*.pickle
+deleted_dialogues.json
