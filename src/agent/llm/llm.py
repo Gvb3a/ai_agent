@@ -32,5 +32,5 @@ def llm_api(messages: list[dict] | str, files: str | list = [], provider: Litera
             logger.error(f'groq error: {e}', exc_info=True)
             answer = genai_api(messages)
 
-    logger.info(f'answer: {answer}, messages: {messages[-1]['content']}, files: {files}, provider: {provider}, time: {datetime.now()-start_time}')
+    logger.info(f'answer: {answer}, messages: {messages[-1]["content"]}, files: {files}, provider: {provider}, time: {datetime.now()-start_time}')
     return answer

@@ -137,4 +137,3 @@ def sql_clear_user_history(user_id: int):
 
 
 sql_launch()
-sql_clear_user_history(2117601484)
