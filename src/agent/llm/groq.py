@@ -52,7 +52,7 @@ def groq_api_compound(messages: list, model: Literal['groq/compound', 'groq/comp
                 model=model,
                 compound_custom={
                     "tools": {
-                        "enabled_tools": ["web_search", "wolfram_alpha", "code_interpreter", "visit_website"],
+                        "enabled_tools": ["web_search", "wolfram_alpha", "code_interpreter", "visit_website"], # "browser_automation", "browser_search" 
                         "wolfram_settings": {"authorization": config.api.wolfram_full_key}
                     }
                 })

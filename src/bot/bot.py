@@ -2,6 +2,7 @@ import os
 import re
 import asyncio
 from time import sleep
+from datetime import datetime
 from collections import Counter
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command, StateFilter
@@ -113,15 +114,54 @@ async def log_command_handler(message: Message) -> None:
 @dp.message(StateFilter(FSM.processing))
 async def processing_message_handler(message: Message, state: FSMContext) -> None:
     inline_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=f'Cancel generation', callback_data=f'clear_state')]])
-    await message.reply(f'If you get stuck, write to [admin](https://t.me/{config.tg_bot.support_tg}) or click the button below and wait 10 seconds', reply_markup=inline_keyboard, parse_mode='Markdown')
+    await message.answer(f'Your request is still being processed. If you think the bot is stuck, click the button below.', reply_markup=inline_keyboard, parse_mode='Markdown')
     logger.warning(f'{message.from_user.full_name}({message.from_user.username}) - stuck')
 
+
+def create_progress_bar(percent: int, length: int = 15) -> str:
+    '''self_created progress bar'''
+    filled = int(length * percent / 100)
+    bar = '▰' * filled + '▱' * (length - filled)
+    return f"{bar}"
 
 @dp.callback_query(F.data == 'clear_state')
 async def clear_state_callback(callback: CallbackQuery, state: FSMContext) -> None:
     logger.warning(f'{callback.from_user.full_name}({callback.from_user.username}) - button clear state')
-    sleep(10)
+    message_date = callback.message.date
+    current_time = datetime.now(message_date.tzinfo)
+    time_diff = (current_time - message_date).total_seconds()
+    if time_diff > 100:
+        await state.clear()
+        try:
+            await callback.message.edit_text('✅ State cleared')
+        except:
+            pass
+        await callback.answer('State cleared')
+        return
+    
+    total_time = 10
+    update_interval = 1
+    steps = total_time // update_interval
+    
+    for i in range(steps + 1):
+        percent = int((i / steps) * 100)
+        remaining = total_time - (i * update_interval)
+        
+        progress_text = (
+            f"⏳ Clearing state in {remaining}s...\n"
+            f"{create_progress_bar(percent)}"
+        )
+        
+        try:
+            await callback.message.edit_text(progress_text)
+        except Exception as e:
+            logger.debug(f"Can't update message: {e}")
+        
+        if i < steps:
+            await asyncio.sleep(update_interval)
+    
     await state.clear()
+    await callback.message.edit_text('✅ State cleared successfully!')
     await callback.answer('State cleared')
 
 
