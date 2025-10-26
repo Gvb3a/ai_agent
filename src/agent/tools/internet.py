@@ -47,7 +47,7 @@ async def download_images(image_urls):
 
     
 def parsing(links: str | list) -> str:
-    '''Parse the content of the given links using Tavily API'''
+    '''Parse the content of the given links''' # using Tavily API
     start_time = datetime.now() 
     try:
         responce = tavily_client.extract(urls=links)
@@ -59,7 +59,7 @@ def parsing(links: str | list) -> str:
         result = ''
         for link in links:
             try:
-                responce = tavily_client.extract(urls=link)
+                responce = tavily_client.extract(link)
                 result += f'{link}: {responce["result"][0]["raw_content"]}\n'
             except:
                 result += f'{link}: Error when extracting text ({e})\n'
@@ -67,7 +67,8 @@ def parsing(links: str | list) -> str:
     logger.info(f'{links}, {result}, {datetime.now() - start_time}')
     return result
     
-    
+
+
 def DDGS_answer(text: str) -> str:
     'A short answer like Google. Sometimes nothing comes up. But mostly the answer comes from wikipedia.'
     try:

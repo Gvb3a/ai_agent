@@ -1,6 +1,7 @@
 # https://groq.com/
+from groq import Groq
 from typing import Literal
-from groq import Groq, AsyncGroq
+from datetime import datetime
 from ..tools.file_utils import files_to_text
 from ...config.logger import logger
 from ...config.config import load_config
@@ -8,9 +9,7 @@ from ...config.config import load_config
 
 config = load_config()
 groq_api_keys = config.api.groq_key
-groq_client = [Groq(api_key=key) for key in groq_api_keys]  # Helps with rate limiting
-groq_client_async = [AsyncGroq(api_key=key) for key in groq_api_keys]
-
+groq_client = [Groq(api_key=key, default_headers={"Groq-Model-Version": "latest"}) for key in groq_api_keys]  # Helps with rate limiting
 
 
 def groq_api(messages: list, files: list = None, model: Literal['openai/gpt-oss-120b', 'openai/gpt-oss-20b', 'groq/compound', 'groq/compound-mini'] = 'openai/gpt-oss-120b') -> str:
@@ -27,7 +26,6 @@ def groq_api(messages: list, files: list = None, model: Literal['openai/gpt-oss-
             response = client.chat.completions.create(
                 messages=messages,
                 model=model)
-            logger.info(f'Success: {response.choices[0].message.content}')
             answer = str(response.choices[0].message.content)
             break
         except Exception as e:
@@ -39,28 +37,43 @@ def groq_api(messages: list, files: list = None, model: Literal['openai/gpt-oss-
     return answer
 
 
-async def groq_api_stream(messages, model="openai/gpt-oss-120b"):
-    error = False
-    for client in groq_client_async:
-        try:    
-            stream = await client.chat.completions.create(
+def groq_api_compound(messages: list, model: Literal['groq/compound', 'groq/compound-mini'] = 'groq/compound', files: list = None, only_answer: bool=True) -> tuple[str, str, str] | str:
+    start_time = datetime.now()
+    if type(messages) == str:
+        messages = [{"role": "user", "content": messages}]
+    if files:
+        file_texts = files_to_text(files)
+        messages[-1]["content"] += file_texts
+
+    for client in groq_client:
+        try:
+            response = client.chat.completions.create(
                 messages=messages,
                 model=model,
-                stream=True,
-            )
-            
-            async for chunk in stream:
-                content = chunk.choices[0].delta.content
-                if content:
-                    yield content
-                return
+                compound_custom={
+                    "tools": {
+                        "enabled_tools": ["web_search", "wolfram_alpha", "code_interpreter", "visit_website"],
+                        "wolfram_settings": {"authorization": config.api.wolfram_full_key}
+                    }
+                })
+            answer = str(response.choices[0].message.content)
+            executed_tools = response.choices[0].message.executed_tools
+            break
         except Exception as e:
             logger.error(f'Error with {model} on {client.api_key}: {e}', exc_info=True)
-            error = True
+            answer = f'Error {e}'
             continue
-    if error:
-        yield 'Error'
-        return
+    
+    if executed_tools:
+        tools = [{tool.type: tool.arguments} for tool in executed_tools]
+    else:
+        tools = []
+    seconds = (datetime.now()-start_time).total_seconds()
+    minutes = int(seconds // 60) 
+    time = f"{minutes} min {seconds} s" if minutes else f"{seconds} s"
+    logger.info(f'{model} answer: {answer}, query: {messages[-1]["content"]}, tools: {tools}, time: {time}')
+    if only_answer:
+        return answer
+    else:
+        return answer, tools, time
 
-def groq_api_compound(messages: list, model: Literal['groq/compound', 'groq/compound-mini'] = 'groq/compound', files: list = None) -> str:
-    return groq_api(messages, model=model, files=files)

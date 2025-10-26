@@ -123,7 +123,7 @@ def files_to_text(files: list | str) -> str:
             elif file_path.endswith('.mp3'):
                 text = speech_recognition(file_path)
 
-            elif file:
+            elif file_path:
                 with open(file_path, 'r') as file:
                     text = file.read()
             

@@ -2,6 +2,7 @@ import os
 import re
 import asyncio
 from time import sleep
+from collections import Counter
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command, StateFilter
 from aiogram.types import Message, CallbackQuery, FSInputFile, InputMediaPhoto, InlineKeyboardButton, InlineKeyboardMarkup
@@ -11,7 +12,7 @@ from aiogram.fsm.state import default_state, State, StatesGroup
 from .formatter import markdown_to_html, split_html
 from ..agent.agent import system_prompt, llm_select_tool, llm_use_tool
 from ..agent.llm.llm import llm_api
-from ..agent.llm.groq import groq_api_compound, groq_api_stream
+from ..agent.llm.groq import groq_api, groq_api_compound
 from ..agent.tools.wolfram import wolfram_simple_api
 from ..agent.tools.code_interpreter import code_interpreter
 from ..agent.tools.translate import detect_language, translate
@@ -228,15 +229,17 @@ async def wolfram_message_handler(message: Message, state: FSMContext) -> None:
 
 
 @dp.message(StateFilter(FSM.groq))
-async def groq_message_handler(message: Message, state: FSMContext) -> None:
+@dp.message(StateFilter(FSM.gpt_oss))
+async def groq_and_gpt_oss_message_handler(message: Message, state: FSMContext) -> None:
+    previous_state = await state.get_state()
     await state.set_state(FSM.processing)
     input_files = []
+    message_to_delete = message.message_id + 1
     if message.photo:
         await message.answer("This model does not support images.")
-        await state.set_state(FSM.groq)
+        await state.set_state(previous_state)
         return
     elif message.document:
-        await message.answer('The document has been read. Reasoning...')
         file_id = message.document.file_id
         file = await bot.get_file(file_id)
         file_path = file.file_path
@@ -244,29 +247,33 @@ async def groq_message_handler(message: Message, state: FSMContext) -> None:
         await bot.download_file(file_path, file_name)
         input_files = [file_name]
         text = str(message.caption) if message.caption else 'Describe the document or answer a previous question'
+        await message.answer('The document has been read ✅. Every time you ask for a document, you will need to send it.')
+        message_to_delete += 1
 
     elif message.voice:
         await message.answer('Recognizing audio...')
         file_name = await download_file_for_id(file_id=message.voice.file_id, extension='mp3')
         text = speech_recognition(file_name=file_name).strip()
         os.remove(file_name)
-        await bot.edit_message_text(chat_id=message.chat.id, message_id=message.message_id+1, text=f'Recognized as "{text}". Reasoning...')
+        await bot.edit_message_text(chat_id=message.chat.id, message_id=message_to_delete, text=f'Recognized as "{text}"')
+        message_to_delete += 1
     
     if message.text:
-        await message.answer('Reasoning...')
         text = str(message.text)
+    await message.answer('⏳')
 
     messages = sql_select_history(id=message.from_user.id)
     messages.append({'role': 'user', 'content': text})
     sql_check_user(user_id=message.from_user.id, telegram_name=message.from_user.full_name, telegram_username=message.from_user.username)
     sql_insert_message(user_id=message.from_user.id, role='user', content=text)
-    logger.info(f'new message by {message.from_user.full_name}. messages: {text}, files: {input_files}')
+    logger.info(f'New message by {message.from_user.full_name}. messages: {text}, files: {input_files}, state: {previous_state}')
     
-    answer = groq_api_compound(messages=messages, files=input_files)[0]
-    await bot.delete_message(chat_id=message.chat.id, message_id=message.message_id+1)
-
-    logger.info(f'answer to {message.from_user.full_name}({text}): {answer}')
-    sql_insert_message(user_id=message.from_user.id, role='assistant', content=answer)
+    if previous_state == FSM.groq:
+        answer, tools, time = groq_api_compound(messages=messages, files=input_files, only_answer=False)
+    else: # elif previous_state == FSM.gpt_oss
+        answer = groq_api(messages=messages, files=input_files)
+        
+    await bot.delete_message(chat_id=message.chat.id, message_id=message_to_delete)
 
     
     for part in split_html(markdown_to_html(answer)):
@@ -276,73 +283,29 @@ async def groq_message_handler(message: Message, state: FSMContext) -> None:
             inline_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text='Fix formatting', callback_data=f'fix_formatting')]])
             await message.answer(part, reply_markup=inline_keyboard)
 
+
+    logger.info(f'Mode: {previous_state}. Answer to {message.from_user.full_name}({text}): {answer}')
+    sql_insert_message(user_id=message.from_user.id, role='assistant', content=answer)
+
+    if tools:
+        counts = Counter()
+        for entry in tools:
+            tool_name = next(iter(entry))
+            counts[tool_name] += 1
+        parts = []
+        for tool in sorted(counts):
+            cnt = counts[tool]
+            if cnt == 1:
+                parts.append(f"`{tool}`")
+            else:
+                parts.append(f"`{tool}` (x{cnt})")
+        model = f'**Used:** `groq/compound`'
+        tools = '**Tools:** ' + ", ".join(parts)
+        time = f'**Time:** {time}'
+        await message.answer(markdown_to_html(f"{model}\n{tools}\n{time}"), parse_mode='HTML')  # TODO: settings: model (mini/normal), show this message, browser_auto
+
     await state.set_state(FSM.groq)
 
-
-async def edit_message_with_html(text: str, message_id: int, chat_id: int):
-    try:
-        await bot.edit_message_text(text=text, message_id=message_id, parse_mode='HTML', chat_id=chat_id)
-    except Exception as e:
-        print('Parse mode error:', e, text)
-        inline_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text='Fix formatting', callback_data=f'fix_formatting')]])
-        await bot.edit_message_text(text=text, message_id=message_id, chat_id=chat_id, reply_markup=inline_keyboard)
-
-
-@dp.message(StateFilter(FSM.gpt_oss))
-async def gpt_oss_message_handler(message: Message, state: FSMContext) -> None:
-    await state.set_state(FSM.processing)
-    input_files = []
-    message_id_for_edit = message.message_id + 1
-    if message.photo:
-        await message.answer("This model does not support images.")
-        await state.set_state(FSM.gpt_oss)
-        return
-    elif message.voice:
-        await message.reply('Recognizing audio...')
-        file_name = await download_file_for_id(file_id=message.voice.file_id, extension='mp3')
-        text = speech_recognition(file_name=file_name).strip()
-        os.remove(file_name)
-        await bot.edit_message_text(chat_id=message.chat.id, message_id=message.message_id+1, text=f'Recognized as "{text}"')
-        message_id_for_edit += 1
-    
-    if message.text:
-        text = str(message.text)
-
-    messages = sql_select_history(id=message.from_user.id)
-    messages.append({'role': 'user', 'content': text})
-    sql_check_user(user_id=message.from_user.id, telegram_name=message.from_user.full_name, telegram_username=message.from_user.username)
-    sql_insert_message(user_id=message.from_user.id, role='user', content=text)
-    logger.info(f'new message by {message.from_user.full_name}. messages: {text}')
-    
-    
-    await message.answer("⏳")
-    full_answer = ""
-    last_update_time = asyncio.get_event_loop().time()
-    prev_len = 1
-
-    async for chunk in groq_api_stream(messages=messages):
-        full_answer += chunk
-        current_time = asyncio.get_event_loop().time()
-        
-        if current_time - last_update_time > 0.25:
-            chunks = split_html(markdown_to_html(full_answer))
-            if len(chunks) > prev_len:
-                prev_len += 1
-                await edit_message_with_html(text=chunks[-2], message_id=message_id_for_edit+len(chunks) - 2, chat_id=message.from_user.id)
-                await message.answer("...")
-            await edit_message_with_html(text=chunks[-1], message_id=message_id_for_edit+len(chunks) - 1, chat_id=message.from_user.id)
-            last_update_time = asyncio.get_event_loop().time()
-    else:
-        chunks = split_html(markdown_to_html(full_answer))
-        if len(chunks) > prev_len:
-            prev_len += 1
-            await message.answer("...")
-        await edit_message_with_html(text=chunks[-1], message_id=message_id_for_edit+len(chunks) - 1, chat_id=message.from_user.id)
-
-
-    logger.info(f'{message.from_user.full_name}({message.from_user.username}) - {text} - {full_answer}')
-    sql_insert_message(user_id=message.from_user.id, role='assistant', content=full_answer)
-    await state.set_state(FSM.gpt_oss)
 
                 
 
