@@ -24,7 +24,6 @@ def sql_launch():
     connection = sqlite3.connect(config.database.path) 
     cursor = connection.cursor()
     
-    # TODO: files
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS Messages (
         user_name TEXT,
@@ -41,14 +40,22 @@ def sql_launch():
         telegram_name TEXT,
         telegram_username TEXT,
         user_id INTEGER PRIMARY KEY,
+        hide_execution_info INTEGER DEFAULT 0,
+        compound_model TEXT DEFAULT 'groq/compound',
+        browser_automation_enabled INTEGER DEFAULT 0,
+        current_state TEXT DEFAULT 'default',        
         number_of_messages INT,
         first_message TEXT,
         last_message TEXT
         )
         ''')
     
-    # TODO: settings
-
+    # Add current_state column if it doesn't exist (for existing databases)
+    try:
+        cursor.execute('ALTER TABLE Users ADD COLUMN current_state TEXT DEFAULT "default"')
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+    
     connection.commit()
     connection.close()
 
@@ -62,7 +69,8 @@ def sql_check_user(telegram_name: str, telegram_username: str, user_id: int):
     if user is None:
         logger.info(f'new user {telegram_name} {telegram_username} {user_id}')
         time = utc_time()
-        cursor.execute('INSERT INTO Users (telegram_name, telegram_username, user_id, number_of_messages, first_message, last_message) VALUES (?, ?, ?, ?, ?, ?)', (telegram_name, telegram_username, user_id, 1, time, time))
+        cursor.execute('INSERT INTO Users (telegram_name, telegram_username, user_id, number_of_messages, first_message, last_message, hide_execution_info, compound_model, browser_automation_enabled, current_state) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', 
+                       (telegram_name, telegram_username, user_id, 1, time, time, 0, 'groq/compound', 0, 'default'))
 
     else:
         cursor.execute('UPDATE Users SET number_of_messages = number_of_messages + 1, last_message = ? WHERE user_id = ?', (utc_time(), user_id))
@@ -136,4 +144,54 @@ def sql_clear_user_history(user_id: int):
     logger.info(f'Cleared history for {user_id}')
 
 
+def sql_get_settings(user_id: int, settings: str | list[str]) -> dict:
+    connection = sqlite3.connect(config.database.path) 
+    cursor = connection.cursor()
+
+    if type(settings) == str:
+        settings = [settings]
+    result = {}
+
+    for setting in settings:
+        try:
+            result[setting] = cursor.execute(f'SELECT {setting} FROM Users WHERE user_id = {user_id}').fetchall()[0][0]
+        except:
+            logger.error(f'The "{setting}" setting is not in the database.')
+            result[setting] = None
+
+    connection.close()
+    return result
+
+
+def sql_change_setting(user_id: int, setting_name: str, setting_value: str | int) -> bool:
+    connection = sqlite3.connect(config.database.path)
+    cursor = connection.cursor()
+
+    try:
+        cursor.execute(f'UPDATE Users SET {setting_name} = ? WHERE user_id = ?', (setting_value, user_id))
+        connection.commit()
+
+    except Exception as e:
+        logger.error(f'There is no setting "{setting_name}" to change it: {e}')
+        return False
+    connection.close()
+    return True
+
+
+def sql_set_user_state(user_id: int, state: str) -> bool:
+    '''Set user state in database'''
+    return sql_change_setting(user_id=user_id, setting_name='current_state', setting_value=state)
+
+
+def sql_get_user_state(user_id: int) -> str:
+    '''Get user state from database'''
+    result = sql_get_settings(user_id=user_id, settings=['current_state'])
+    return result.get('current_state', 'default')
+
+
+def sql_clear_user_state(user_id: int) -> bool:
+    '''Clear user state to saved state from database'''
+    saved_state = sql_get_user_state(user_id)
+    return saved_state
+ 
 sql_launch()

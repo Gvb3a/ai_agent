@@ -37,41 +37,51 @@ def groq_api(messages: list, files: list = None, model: Literal['openai/gpt-oss-
     return answer
 
 
-def groq_api_compound(messages: list, model: Literal['groq/compound', 'groq/compound-mini'] = 'groq/compound', files: list = None, only_answer: bool=True) -> tuple[str, str, str] | str:
+def groq_api_compound(messages: list, model: Literal['groq/compound', 'groq/compound-mini'] = 'groq/compound', files: list = None, only_answer: bool = True, browser_automation: bool = False) -> tuple[str, str, str] | str:
     start_time = datetime.now()
     if type(messages) == str:
         messages = [{"role": "user", "content": messages}]
+    if model not in ['groq/compound', 'groq/compound-mini']:
+        logger.warning(f'Wrong model: {model}')
+        model = 'groq/compound'
     if files:
         file_texts = files_to_text(files)
         messages[-1]["content"] += file_texts
+
+    compound_custom = {
+                    "tools": {
+                        "enabled_tools": ["web_search", "wolfram_alpha", "code_interpreter", "visit_website"],
+                        "wolfram_settings": {"authorization": config.api.wolfram_full_key}
+                    }
+                }
+    
+    if browser_automation:
+        compound_custom["tools"]["enabled_tools"].append('browser_automation')
 
     for client in groq_client:
         try:
             response = client.chat.completions.create(
                 messages=messages,
                 model=model,
-                compound_custom={
-                    "tools": {
-                        "enabled_tools": ["web_search", "wolfram_alpha", "code_interpreter", "visit_website"], # "browser_automation", "browser_search" 
-                        "wolfram_settings": {"authorization": config.api.wolfram_full_key}
-                    }
-                })
+                compound_custom=compound_custom
+            )
             answer = str(response.choices[0].message.content)
             executed_tools = response.choices[0].message.executed_tools
             break
         except Exception as e:
             logger.error(f'Error with {model} on {client.api_key}: {e}', exc_info=True)
             answer = f'Error {e}'
+            executed_tools = []
             continue
     
     if executed_tools:
         tools = [{tool.type: tool.arguments} for tool in executed_tools]
     else:
         tools = []
-    seconds = (datetime.now()-start_time).total_seconds()
+    seconds = round((datetime.now()-start_time).total_seconds(), 2)
     minutes = int(seconds // 60) 
     time = f"{minutes} min {seconds} s" if minutes else f"{seconds} s"
-    logger.info(f'{model} answer: {answer}, query: {messages[-1]["content"]}, tools: {tools}, time: {time}')
+    logger.info(f'{model} answer: {answer}, query: {messages[-1]["content"]}, tools: {tools}, time: {time}, files: {files}, only_answer: {only_answer}, browser_automation: {browser_automation}')
     if only_answer:
         return answer
     else:

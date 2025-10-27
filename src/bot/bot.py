@@ -23,10 +23,15 @@ from .database import (
     utc_time,
     text_to_hash,
     sql_check_user,
+    sql_get_settings,
+    sql_change_setting,
     sql_select_history,
     sql_insert_message,
     sql_clear_user_history,
     sql_get_message_by_hash,
+    sql_set_user_state,
+    sql_get_user_state,
+    sql_clear_user_state,
 )
 from ..config.logger import logger
 from ..config.config import load_config, Config
@@ -46,6 +51,39 @@ class FSM(StatesGroup):
 
 bot = Bot(token=str(bot_token))
 dp = Dispatcher()
+
+
+@dp.message.middleware()
+async def state_restore_middleware(handler, event: Message, data):
+    '''Middleware to restore user state from database'''
+    state = data['state']
+    current_state = await state.get_state()
+    
+    # Only restore if no current state (fresh start)
+    if current_state is None:
+        await restore_user_state(event.from_user.id, state)
+    
+    return await handler(event, data)
+
+
+async def restore_user_state(user_id: int, state: FSMContext):
+    '''Restore user state from database'''
+    saved_state = sql_get_user_state(user_id)
+    if saved_state == 'wolfram':
+        await state.set_state(FSM.wolfram)
+    elif saved_state == 'groq':
+        await state.set_state(FSM.groq)
+    elif saved_state == 'gpt_oss':
+        await state.set_state(FSM.gpt_oss)
+    elif saved_state == 'gemini':
+        await state.set_state(FSM.gemini)
+    else:
+        await state.clear()
+
+
+async def save_user_state(user_id: int, state_name: str):
+    '''Save user state to database'''
+    sql_set_user_state(user_id, state_name)
 
 
 async def download_file_for_id(file_id, extension):
@@ -127,11 +165,19 @@ def create_progress_bar(percent: int, length: int = 15) -> str:
 @dp.callback_query(F.data == 'clear_state')
 async def clear_state_callback(callback: CallbackQuery, state: FSMContext) -> None:
     logger.warning(f'{callback.from_user.full_name}({callback.from_user.username}) - button clear state')
+
+    current_state = await state.get_state()
+    if current_state != FSM.processing.state:
+        await callback.message.edit_text('✅ No processing state to clear')
+        await callback.answer('No processing state')
+        return
+        
     message_date = callback.message.date
     current_time = datetime.now(message_date.tzinfo)
     time_diff = (current_time - message_date).total_seconds()
     if time_diff > 100:
-        await state.clear()
+        saved_state = sql_clear_user_state(callback.from_user.id)
+        await restore_user_state(callback.from_user.id, state)
         try:
             await callback.message.edit_text('✅ State cleared')
         except:
@@ -160,7 +206,8 @@ async def clear_state_callback(callback: CallbackQuery, state: FSMContext) -> No
         if i < steps:
             await asyncio.sleep(update_interval)
     
-    await state.clear()
+    saved_state = sql_clear_user_state(callback.from_user.id)
+    await restore_user_state(callback.from_user.id, state)
     await callback.message.edit_text('✅ State cleared successfully!')
     await callback.answer('State cleared')
 
@@ -176,6 +223,7 @@ async def clear_command_handler(message: Message) -> None:
 @dp.message(Command('default'))
 async def default_command_handler(message: Message, state: FSMContext) -> None:
     await state.clear()
+    await save_user_state(message.from_user.id, 'default')
     await message.answer("Now you will be answered by a standard agent. Very smart and functional, but slow.")
     logger.info(f'{message.from_user.full_name}({message.from_user.username}) - default state')
     
@@ -185,9 +233,11 @@ async def wolfram_command_handler(message: Message, state: FSMContext) -> None:
     current_state = await state.get_state()
     if current_state == FSM.wolfram.state:
         await state.clear()
+        await save_user_state(message.from_user.id, 'default')
         await message.answer("Wolfram mode deactivated.")
     else:
         await state.set_state(FSM.wolfram)
+        await save_user_state(message.from_user.id, 'wolfram')
         await message.answer("All your questions will be answered using WolframAlpha. If you want to switch back to normal mode, type /wolfram.")
     logger.info(f'{message.from_user.full_name}({message.from_user.username}) - {current_state}')
 
@@ -197,9 +247,11 @@ async def groq_command_handler(message: Message, state: FSMContext) -> None:
     current_state = await state.get_state()
     if current_state == FSM.groq.state:
         await state.clear()
+        await save_user_state(message.from_user.id, 'default')
         await message.answer("Groq agent deactivated.")
     else:
         await state.set_state(FSM.groq)
+        await save_user_state(message.from_user.id, 'groq')
         await message.answer("Now you will be assisted by Groq — a fast and stable agent with access to *Web Search*, *Code Execution* and *Website Visits*. Does not support images, but supports documents and audio. To switch back, type /groq.",
                              parse_mode='Markdown')
     logger.info(f'{message.from_user.full_name}({message.from_user.username}) - {current_state}')
@@ -210,9 +262,11 @@ async def gpt_oss_command_handler(message: Message, state: FSMContext) -> None:
     current_state = await state.get_state()
     if current_state == FSM.gpt_oss.state:
         await state.clear()
+        await save_user_state(message.from_user.id, 'default')
         await message.answer("GPT-OSS model deactivated.")
     else:
         await state.set_state(FSM.gpt_oss)
+        await save_user_state(message.from_user.id, 'gpt_oss')
         await message.answer("Now you will be assisted by GPT-OSS — OpenAI's fast and intelligent model without access to tools. Does not support images, but supports documents and audio. To switch back, type /gpt_oss.")
     logger.info(f'{message.from_user.full_name}({message.from_user.username}) - {current_state}')
 
@@ -222,9 +276,11 @@ async def gemini_command_handler(message: Message, state: FSMContext) -> None:
     current_state = await state.get_state()
     if current_state == FSM.gemini.state:
         await state.clear()
+        await save_user_state(message.from_user.id, 'default')
         await message.answer("Gemini model deactivated.")
     else:
         await state.set_state(FSM.gemini)
+        await save_user_state(message.from_user.id, 'gemini')
         await message.answer("Now you will be assisted by Gemini — Google's smartest model. To switch back, type /gemini.")
     logger.info(f'{message.from_user.full_name}({message.from_user.username}) - {current_state}')
 
@@ -309,9 +365,11 @@ async def groq_and_gpt_oss_message_handler(message: Message, state: FSMContext) 
     logger.info(f'New message by {message.from_user.full_name}. messages: {text}, files: {input_files}, state: {previous_state}')
     
     if previous_state == FSM.groq:
-        answer, tools, time = groq_api_compound(messages=messages, files=input_files, only_answer=False)
+        settings = sql_get_settings(user_id=message.from_user.id, settings=['hide_execution_info', 'compound_model','browser_automation_enabled'])
+        answer, tools, time = groq_api_compound(messages=messages, model=settings['compound_model'], files=input_files, only_answer=False, browser_automation=settings['browser_automation_enabled'])
     else: # elif previous_state == FSM.gpt_oss
         answer = groq_api(messages=messages, files=input_files)
+        tools = []
         
     await bot.delete_message(chat_id=message.chat.id, message_id=message_to_delete)
 
@@ -319,7 +377,8 @@ async def groq_and_gpt_oss_message_handler(message: Message, state: FSMContext) 
     for part in split_html(markdown_to_html(answer)):
         try:
             await message.answer(part, parse_mode='HTML')
-        except:
+        except Exception as e:
+            logger.warning(f'Error with parse_mode: {e}. Part {part}')
             inline_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text='Fix formatting', callback_data=f'fix_formatting')]])
             await message.answer(part, reply_markup=inline_keyboard)
 
@@ -327,7 +386,7 @@ async def groq_and_gpt_oss_message_handler(message: Message, state: FSMContext) 
     logger.info(f'Mode: {previous_state}. Answer to {message.from_user.full_name}({text}): {answer}')
     sql_insert_message(user_id=message.from_user.id, role='assistant', content=answer)
 
-    if tools:
+    if previous_state == FSM.groq and not settings['hide_execution_info'] and tools:
         counts = Counter()
         for entry in tools:
             tool_name = next(iter(entry))
@@ -342,9 +401,15 @@ async def groq_and_gpt_oss_message_handler(message: Message, state: FSMContext) 
         model = f'**Used:** `groq/compound`'
         tools = '**Tools:** ' + ", ".join(parts)
         time = f'**Time:** {time}'
-        await message.answer(markdown_to_html(f"{model}\n{tools}\n{time}"), parse_mode='HTML')  # TODO: settings: model (mini/normal), show this message, browser_auto
+        hide_text = 'Hide' if not settings['hide_execution_info'] else 'Show'
+        browser_text = 'Disable browser' if settings['browser_automation_enabled'] else 'Enable browser'
+        inline_keyboard_2 = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text=hide_text, callback_data='hide_execution_info'),
+            InlineKeyboardButton(text='Change model', callback_data='change_compound_model')],[
+            InlineKeyboardButton(text=browser_text, callback_data='change_browser_automation_enabled')]])
+        await message.answer(markdown_to_html(f"{model}\n{tools}\n{time}"), parse_mode='HTML', reply_markup=inline_keyboard_2)
 
-    await state.set_state(FSM.groq)
+    await state.set_state(previous_state)
 
 
                 
@@ -362,6 +427,11 @@ async def message_handler(message: Message, state: FSMContext) -> None:
     message_id = message.message_id
 
     sql_check_user(user_id=user_id, telegram_name=user, telegram_username=username)
+    # Restore state if needed
+    current_db_state = sql_get_user_state(user_id)
+    if current_db_state != 'default':
+        await restore_user_state(user_id, state)
+        return  # Let the appropriate handler process the message
 
     temp_message_text = ['Selecting tool - 🔍', 'Using the tool - ⚙️', 'Generating response - 🤖']
     temp_message_id = message_id + 1
@@ -616,6 +686,62 @@ async def callback_translate_message(callback: CallbackQuery):
 
      
     await callback.answer()
+
+
+
+
+SETTINGS_CONFIG = {
+    'hide_execution_info': {
+        'toggle': True,
+        'messages': {
+            1: 'Now you will not see information about execution',
+            0: 'Now you will see information about the execution'
+        }
+    },
+    'browser_automation_enabled': {
+        'toggle': True,
+        'messages': {
+            1: 'The model can now use browser automation',
+            0: 'Now you will not use browser automation'
+        }
+    },
+    'compound_model': {
+        'toggle': False,
+        'values': ['groq/compound', 'groq/compound-mini'],
+        'messages': {
+            'groq/compound': 'Now you will use the groq/compound model',
+            'groq/compound-mini': 'Now you will use the groq/compound-mini model'
+        }
+    }
+}
+
+@dp.callback_query(F.data.in_(['hide_execution_info', 'change_compound_model', 'change_browser_automation_enabled']))
+async def callback_change_setting(callback: CallbackQuery):
+    setting_name = callback.data.replace('change_', '')
+    user_id = callback.from_user.id
+    config_item = SETTINGS_CONFIG[setting_name]
+    
+    try:
+        current_value = sql_get_settings(user_id=user_id, settings=[setting_name])[setting_name]
+        
+        if config_item['toggle']:
+            new_value = int(not current_value)
+        else:
+            values = config_item['values']
+            current_index = values.index(current_value)
+            new_value = values[(current_index + 1) % len(values)]
+        
+        if not sql_change_setting(user_id=user_id, setting_name=setting_name, setting_value=new_value):
+            raise ValueError("Failed to change setting")
+        
+        message = config_item['messages'][new_value]
+        logger.info(f'User: {callback.from_user.full_name}, {setting_name}: {new_value}')
+        await callback.answer(message)
+        
+    except Exception as e:
+        logger.error(f"Error changing {setting_name}: {str(e)}")
+        await callback.answer(f'Error. Contact support: @{config.tg_bot.support_tg}')
+
 
 
 @dp.callback_query(F.data[:15] == 'run_python_code')
