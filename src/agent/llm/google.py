@@ -1,9 +1,7 @@
 import os
-import asyncio
 import PIL.Image
-from google import genai
-from google.genai import types
-from google import generativeai
+from typing import Literal
+from google import genai, generativeai
 from ..tools.file_utils import files_to_text
 from ...config.config import load_config
 from ...config.logger import logger
@@ -15,11 +13,17 @@ os.environ["GOOGLE_API_KEY"] = config.api.gemini_key
 os.environ['GRPC_DNS_RESOLVER'] = 'native'
 generativeai.configure(api_key=os.environ['GOOGLE_API_KEY'])
 
-google_model = generativeai.GenerativeModel("gemini-2.5-flash")
+google_models = {
+    "gemini-2.5-flash": generativeai.GenerativeModel("gemini-2.5-flash"),
+    "gemini-2.5-pro": generativeai.GenerativeModel("gemini-2.5-pro"),
+    "gemini-2.5-flash-lite": generativeai.GenerativeModel("gemini-2.5-flash-lite")
+}
+google_model_flash = generativeai.GenerativeModel("gemini-2.5-flash")
+
 client = genai.Client(api_key=os.environ["GOOGLE_API_KEY"])
 
 
-def genai_api(messages: list[dict] | str, files: list | str = []) -> str:
+def genai_api(messages: list[dict] | str, files: list | str = [], model: Literal["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite"] = "gemini-2.5-flash") -> str:
     if type(messages) == str:
         user_message = messages
         formatted_history = []
@@ -34,12 +38,9 @@ def genai_api(messages: list[dict] | str, files: list | str = []) -> str:
             content = message['content']
             formatted_history.append({"role": role, "parts": content})
 
-    
-    if type(files) == str:
-        files = [files]
-
+    google_model = google_models.get(model, google_model_flash)
     chat = google_model.start_chat(history=formatted_history)
-
+    
     image_files = []
     for file_path in files:
         if file_path.endswith(('.png', '.jpg', '.jpeg', '.webp')):

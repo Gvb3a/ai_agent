@@ -40,21 +40,29 @@ def sql_launch():
         telegram_name TEXT,
         telegram_username TEXT,
         user_id INTEGER PRIMARY KEY,
+        current_state TEXT DEFAULT 'default',       
         hide_execution_info INTEGER DEFAULT 0,
         compound_model TEXT DEFAULT 'groq/compound',
         browser_automation_enabled INTEGER DEFAULT 0,
-        current_state TEXT DEFAULT 'default',        
+        gpt_oss_model TEXT DEFAULT 'openai/gpt-oss-120b',
+        gemini_model TEXT DEFAULT 'gemini-2.5-flash',
         number_of_messages INT,
         first_message TEXT,
         last_message TEXT
         )
         ''')
     
-    # Add current_state column if it doesn't exist (for existing databases)
-    try:
-        cursor.execute('ALTER TABLE Users ADD COLUMN current_state TEXT DEFAULT "default"')
-    except sqlite3.OperationalError:
-        pass  # Column already exists
+    
+    columns_to_add = [
+        ('current_state', 'TEXT DEFAULT "default"'),
+        ('gpt_oss_model', 'TEXT DEFAULT "openai/gpt-oss-120b"'),
+        ('gemini_model', 'TEXT DEFAULT "gemini-2.5-flash"')
+    ]
+    for column_name, column_def in columns_to_add:
+        try:
+            cursor.execute(f'ALTER TABLE Users ADD COLUMN {column_name} {column_def}')
+        except sqlite3.OperationalError:
+            pass 
     
     connection.commit()
     connection.close()
@@ -69,8 +77,8 @@ def sql_check_user(telegram_name: str, telegram_username: str, user_id: int):
     if user is None:
         logger.info(f'new user {telegram_name} {telegram_username} {user_id}')
         time = utc_time()
-        cursor.execute('INSERT INTO Users (telegram_name, telegram_username, user_id, number_of_messages, first_message, last_message, hide_execution_info, compound_model, browser_automation_enabled, current_state) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', 
-                       (telegram_name, telegram_username, user_id, 1, time, time, 0, 'groq/compound', 0, 'default'))
+        cursor.execute('INSERT INTO Users (telegram_name, telegram_username, user_id, number_of_messages, first_message, last_message, hide_execution_info, compound_model, browser_automation_enabled, current_state, gpt_oss_model, gemini_model) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', 
+                       (telegram_name, telegram_username, user_id, 1, time, time, 0, 'groq/compound', 0, 'default', 'openai/gpt-oss-120b', 'gemini-2.5-flash'))
 
     else:
         cursor.execute('UPDATE Users SET number_of_messages = number_of_messages + 1, last_message = ? WHERE user_id = ?', (utc_time(), user_id))
@@ -133,7 +141,6 @@ def sql_clear_user_history(user_id: int):
             except json.JSONDecodeError:
                 data = []
 
-        # append new entry and write back as a JSON array
         data.append({f"{user_id}_{utc_time()}": dialog})
         with open(logs_path, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)

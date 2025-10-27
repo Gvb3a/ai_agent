@@ -13,6 +13,7 @@ from aiogram.fsm.state import default_state, State, StatesGroup
 from .formatter import markdown_to_html, split_html
 from ..agent.agent import system_prompt, llm_select_tool, llm_use_tool
 from ..agent.llm.llm import llm_api
+from ..agent.llm.google import genai_api
 from ..agent.llm.groq import groq_api, groq_api_compound
 from ..agent.tools.wolfram import wolfram_simple_api
 from ..agent.tools.code_interpreter import code_interpreter
@@ -220,69 +221,125 @@ async def clear_command_handler(message: Message) -> None:
     logger.info(f'{message.from_user.full_name}({message.from_user.username}) - clear history')
 
 
-@dp.message(Command('default'))
-async def default_command_handler(message: Message, state: FSMContext) -> None:
-    await state.clear()
-    await save_user_state(message.from_user.id, 'default')
-    await message.answer("Now you will be answered by a standard agent. Very smart and functional, but slow.")
-    logger.info(f'{message.from_user.full_name}({message.from_user.username}) - default state')
+def generate_settings_keyboard(user_id: int) -> InlineKeyboardMarkup:
+    '''Generate settings keyboard with current values'''
+    settings = sql_get_settings(user_id, ['current_state', 'compound_model', 'browser_automation_enabled', 'gpt_oss_model', 'gemini_model', 'hide_execution_info'])
     
+    # Agent/Mode selection - new priority order
+    state_buttons = []
+    states = [('default', '🏠 Default'), ('gemini', '🧠 Gemini'), ('groq', '🛠️ Groq')]
+    for state, label in states:
+        mark = '✅' if settings['current_state'] == state else ''
+        state_buttons.append(InlineKeyboardButton(text=f'{label} {mark}', callback_data=f'set_state_{state}'))
     
-@dp.message(Command('wolfram'))
-async def wolfram_command_handler(message: Message, state: FSMContext) -> None:
+    # Compound model (toggle format)
+    compound_text = 'Full' if settings['compound_model'] == 'groq/compound' else 'Mini'
+    
+    # Browser automation
+    browser_text = 'Enabled' if settings['browser_automation_enabled'] else 'Disabled'
+    
+    # GPT-OSS model (toggle format)
+    gpt_text = '120B' if settings['gpt_oss_model'] == 'openai/gpt-oss-120b' else '20B'
+    
+    # Gemini model
+    gemini_flash_mark = '✅' if settings['gemini_model'] == 'gemini-2.5-flash' else ''
+    gemini_pro_mark = '✅' if settings['gemini_model'] == 'gemini-2.5-pro' else ''
+    gemini_lite_mark = '✅' if settings['gemini_model'] == 'gemini-2.5-flash-lite' else ''
+    
+    # Hide execution info
+    hide_text = 'Hidden' if settings['hide_execution_info'] else 'Shown'
+    
+    return InlineKeyboardMarkup(inline_keyboard=[
+        # Agent selection header
+        [InlineKeyboardButton(text='AI Assistant Mode:', callback_data='header')],
+        state_buttons,
+        [InlineKeyboardButton(text=f'⚡ GPT-OSS {"✅" if settings["current_state"] == "gpt_oss" else ""}', callback_data='set_state_gpt_oss'),
+         InlineKeyboardButton(text=f'🧮 Wolfram {"✅" if settings["current_state"] == "wolfram" else ""}', callback_data='set_state_wolfram')],
+        
+        # Model settings
+        [InlineKeyboardButton(text=f'Groq Model: {compound_text}', callback_data='toggle_compound')],
+        [InlineKeyboardButton(text=f'Browser Automation: {browser_text}', callback_data='toggle_browser')],
+        [InlineKeyboardButton(text=f'GPT-OSS Model: {gpt_text}', callback_data='toggle_gpt_oss')],
+        
+        # Gemini models (3 options, keep as buttons)
+        [InlineKeyboardButton(text='Gemini Models:', callback_data='header')],
+        [InlineKeyboardButton(text=f'Flash {gemini_flash_mark}', callback_data='set_gemini_gemini-2.5-flash'),
+         InlineKeyboardButton(text=f'Pro {gemini_pro_mark}', callback_data='set_gemini_gemini-2.5-pro'),
+         InlineKeyboardButton(text=f'Flash-Lite {gemini_lite_mark}', callback_data='set_gemini_gemini-2.5-flash-lite')],
+        
+        # Other settings
+        [InlineKeyboardButton(text=f'Execution Info: {hide_text}', callback_data='toggle_hide_info')],
+        
+        # Help button
+        [InlineKeyboardButton(text='Help', callback_data='settings_help')]
+    ])
+
+
+@dp.message(Command('settings'))
+async def settings_command_handler(message: Message) -> None:
+    user_id = message.from_user.id
+    sql_check_user(message.from_user.full_name, message.from_user.username, user_id)
+    
+    keyboard = generate_settings_keyboard(user_id)
+    await message.answer('⚙️ **Settings**', parse_mode='Markdown', reply_markup=keyboard)
+
+
+COMMAND_CONFIG = {
+    'default': {
+        'state': None,
+        'db_name': 'default',
+        'activate_msg': "Now you will be answered by a standard agent. Very smart and functional, but slow.",
+        'deactivate_msg': None
+    },
+    'wolfram': {
+        'state': FSM.wolfram,
+        'db_name': 'wolfram',
+        'activate_msg': "All your questions will be answered using WolframAlpha.",
+        'deactivate_msg': "Wolfram mode deactivated."
+    },
+    'groq': {
+        'state': FSM.groq,
+        'db_name': 'groq',
+        'activate_msg': "Now you will be assisted by Groq — a fast and stable agent with access to *Web Search*, *Code Execution*, *Wolfram Alpha*, *Website Visits* and *Browser Automation*. Does not support images.",
+        'deactivate_msg': "Groq agent deactivated.",
+        'parse_mode': 'Markdown'
+    },
+    'gpt_oss': {
+        'state': FSM.gpt_oss,
+        'db_name': 'gpt_oss',
+        'activate_msg': "Now you will be assisted by GPT-OSS — OpenAI's very fast and intelligent model without access to tools. Does not support images.",
+        'deactivate_msg': "GPT-OSS model deactivated."
+    },
+    'gemini': {
+        'state': FSM.gemini,
+        'db_name': 'gemini',
+        'activate_msg': "Now you will be assisted by Gemini — Google's smartest model.",
+        'deactivate_msg': "Gemini model deactivated."
+    }
+}
+
+@dp.message(Command('default', 'wolfram', 'groq', 'gpt_oss', 'gemini'))
+async def unified_command_handler(message: Message, state: FSMContext) -> None:
+    command = message.text[1:]  # Remove '/'
+    config = COMMAND_CONFIG[command]
     current_state = await state.get_state()
-    if current_state == FSM.wolfram.state:
+    
+    if command == 'default':
         await state.clear()
-        await save_user_state(message.from_user.id, 'default')
-        await message.answer("Wolfram mode deactivated.")
+        await save_user_state(message.from_user.id, config['db_name'])
+        await message.answer(config['activate_msg'])
     else:
-        await state.set_state(FSM.wolfram)
-        await save_user_state(message.from_user.id, 'wolfram')
-        await message.answer("All your questions will be answered using WolframAlpha. If you want to switch back to normal mode, type /wolfram.")
-    logger.info(f'{message.from_user.full_name}({message.from_user.username}) - {current_state}')
-
-
-@dp.message(Command('groq'))
-async def groq_command_handler(message: Message, state: FSMContext) -> None:
-    current_state = await state.get_state()
-    if current_state == FSM.groq.state:
-        await state.clear()
-        await save_user_state(message.from_user.id, 'default')
-        await message.answer("Groq agent deactivated.")
-    else:
-        await state.set_state(FSM.groq)
-        await save_user_state(message.from_user.id, 'groq')
-        await message.answer("Now you will be assisted by Groq — a fast and stable agent with access to *Web Search*, *Code Execution* and *Website Visits*. Does not support images, but supports documents and audio. To switch back, type /groq.",
-                             parse_mode='Markdown')
-    logger.info(f'{message.from_user.full_name}({message.from_user.username}) - {current_state}')
-
-
-@dp.message(Command('gpt_oss'))
-async def gpt_oss_command_handler(message: Message, state: FSMContext) -> None:
-    current_state = await state.get_state()
-    if current_state == FSM.gpt_oss.state:
-        await state.clear()
-        await save_user_state(message.from_user.id, 'default')
-        await message.answer("GPT-OSS model deactivated.")
-    else:
-        await state.set_state(FSM.gpt_oss)
-        await save_user_state(message.from_user.id, 'gpt_oss')
-        await message.answer("Now you will be assisted by GPT-OSS — OpenAI's fast and intelligent model without access to tools. Does not support images, but supports documents and audio. To switch back, type /gpt_oss.")
-    logger.info(f'{message.from_user.full_name}({message.from_user.username}) - {current_state}')
-
-
-@dp.message(Command('gemini'))
-async def gemini_command_handler(message: Message, state: FSMContext) -> None:
-    current_state = await state.get_state()
-    if current_state == FSM.gemini.state:
-        await state.clear()
-        await save_user_state(message.from_user.id, 'default')
-        await message.answer("Gemini model deactivated.")
-    else:
-        await state.set_state(FSM.gemini)
-        await save_user_state(message.from_user.id, 'gemini')
-        await message.answer("Now you will be assisted by Gemini — Google's smartest model. To switch back, type /gemini.")
-    logger.info(f'{message.from_user.full_name}({message.from_user.username}) - {current_state}')
+        if current_state == config['state'].state:
+            await state.clear()
+            await save_user_state(message.from_user.id, 'default')
+            await message.answer(config['deactivate_msg'])
+        else:
+            await state.set_state(config['state'])
+            await save_user_state(message.from_user.id, config['db_name'])
+            parse_mode = config.get('parse_mode')
+            await message.answer(config['activate_msg'], parse_mode=parse_mode)
+    
+    logger.info(f'{message.from_user.full_name}({message.from_user.username}) - {command} command')
 
 
 
@@ -368,7 +425,8 @@ async def groq_and_gpt_oss_message_handler(message: Message, state: FSMContext) 
         settings = sql_get_settings(user_id=message.from_user.id, settings=['hide_execution_info', 'compound_model','browser_automation_enabled'])
         answer, tools, time = groq_api_compound(messages=messages, model=settings['compound_model'], files=input_files, only_answer=False, browser_automation=settings['browser_automation_enabled'])
     else: # elif previous_state == FSM.gpt_oss
-        answer = groq_api(messages=messages, files=input_files)
+        model = sql_get_settings(user_id=message.from_user.id, settings='gpt_oss_model')['gpt_oss_model']
+        answer = groq_api(messages=messages, files=input_files, model=model)
         tools = []
         
     await bot.delete_message(chat_id=message.chat.id, message_id=message_to_delete)
@@ -412,8 +470,67 @@ async def groq_and_gpt_oss_message_handler(message: Message, state: FSMContext) 
     await state.set_state(previous_state)
 
 
-                
+@dp.message(StateFilter(FSM.gemini))
+async def gemini_message_handler(message: Message, state: FSMContext) -> None:
+    await state.set_state(FSM.processing)
+    input_files = []
+    message_to_delete = message.message_id + 1
+    
+    if message.document:
+        file_id = message.document.file_id
+        file = await bot.get_file(file_id)
+        file_path = file.file_path
+        file_name = file.file_path.split('/')[-1]
+        await bot.download_file(file_path, file_name)
+        input_files = [file_name]
+        text = str(message.caption) if message.caption else 'Describe the document or answer a previous question'
+        await message.answer('The document has been read ✅. Every time you ask for a document, you will need to send it.')
+        message_to_delete += 1
+    elif message.photo:
+        file_id = message.photo[-1].file_id
+        file = await bot.get_file(file_id)
+        file_path = file.file_path
+        file_name = file.file_path.split('/')[-1]
+        await bot.download_file(file_path, file_name)
+        input_files = [file_name]
+        text = str(message.caption) if message.caption else 'Describe the image'
+        await message.answer('The image has been processed ✅. Every time you ask about a new image, you will need to send it.')
+        message_to_delete += 1
+    elif message.voice:
+        await message.answer('Recognizing audio...')
+        file_name = await download_file_for_id(file_id=message.voice.file_id, extension='mp3')
+        text = speech_recognition(file_name=file_name).strip()
+        os.remove(file_name)
+        await bot.edit_message_text(chat_id=message.chat.id, message_id=message_to_delete, text=f'Recognized as "{text}"')
+        message_to_delete += 1
+    
+    if message.text:
+        text = str(message.text)
+    await message.answer('⏳')
 
+    messages = sql_select_history(id=message.from_user.id)
+    messages.append({'role': 'user', 'content': text})
+    sql_check_user(user_id=message.from_user.id, telegram_name=message.from_user.full_name, telegram_username=message.from_user.username)
+    sql_insert_message(user_id=message.from_user.id, role='user', content=text)
+    logger.info(f'New message by {message.from_user.full_name}. messages: {text}, files: {input_files}, state: gemini')
+    
+    model = sql_get_settings(user_id=message.from_user.id, settings='gemini_model')['gemini_model']
+    answer = genai_api(messages=messages, files=input_files, model=model)
+        
+    await bot.delete_message(chat_id=message.chat.id, message_id=message_to_delete)
+
+    for part in split_html(markdown_to_html(answer)):
+        try:
+            await message.answer(part, parse_mode='HTML')
+        except Exception as e:
+            logger.warning(f'Error with parse_mode: {e}. Part {part}')
+            inline_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text='Fix formatting', callback_data=f'fix_formatting')]])
+            await message.answer(part, reply_markup=inline_keyboard)
+
+    logger.info(f'Mode: gemini. Answer to {message.from_user.full_name}({text}): {answer}')
+    sql_insert_message(user_id=message.from_user.id, role='assistant', content=answer)
+
+    await state.set_state(FSM.gemini)
 
 
 @dp.message(StateFilter(default_state))
@@ -714,6 +831,87 @@ SETTINGS_CONFIG = {
         }
     }
 }
+
+# Settings callbacks
+@dp.callback_query(F.data.startswith('set_state_'))
+async def callback_set_state(callback: CallbackQuery, state: FSMContext):
+    new_state = callback.data.replace('set_state_', '')
+    user_id = callback.from_user.id
+    
+    sql_set_user_state(user_id, new_state)
+    await restore_user_state(user_id, state)
+    await callback.answer(f'Switched to {new_state} mode')
+    
+    keyboard = generate_settings_keyboard(user_id)
+    await callback.message.edit_reply_markup(reply_markup=keyboard)
+
+
+@dp.callback_query(F.data == 'toggle_compound')
+async def callback_toggle_compound(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    current = sql_get_settings(user_id, ['compound_model'])['compound_model']
+    new_model = 'groq/compound-mini' if current == 'groq/compound' else 'groq/compound'
+    sql_change_setting(user_id, 'compound_model', new_model)
+    model_name = 'Full' if new_model == 'groq/compound' else 'Mini'
+    await callback.answer(f'Compound model: {model_name}')
+    
+    keyboard = generate_settings_keyboard(user_id)
+    await callback.message.edit_reply_markup(reply_markup=keyboard)
+
+
+@dp.callback_query(F.data == 'toggle_gpt_oss')
+async def callback_toggle_gpt_oss(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    current = sql_get_settings(user_id, ['gpt_oss_model'])['gpt_oss_model']
+    new_model = 'openai/gpt-oss-20b' if current == 'openai/gpt-oss-120b' else 'openai/gpt-oss-120b'
+    sql_change_setting(user_id, 'gpt_oss_model', new_model)
+    model_name = '120B' if new_model == 'openai/gpt-oss-120b' else '20B'
+    await callback.answer(f'GPT-OSS model: {model_name}')
+    
+    keyboard = generate_settings_keyboard(user_id)
+    await callback.message.edit_reply_markup(reply_markup=keyboard)
+
+
+@dp.callback_query(F.data.startswith('set_gemini_'))
+async def callback_set_gemini(callback: CallbackQuery):
+    model = callback.data.replace('set_gemini_', '')
+    sql_change_setting(callback.from_user.id, 'gemini_model', model)
+    await callback.answer(f'Gemini model: {model}')
+    
+    keyboard = generate_settings_keyboard(callback.from_user.id)
+    await callback.message.edit_reply_markup(reply_markup=keyboard)
+
+
+@dp.callback_query(F.data == 'toggle_browser')
+async def callback_toggle_browser(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    current = sql_get_settings(user_id, ['browser_automation_enabled'])['browser_automation_enabled']
+    new_value = int(not current)
+    sql_change_setting(user_id, 'browser_automation_enabled', new_value)
+    status = 'enabled' if new_value else 'disabled'
+    await callback.answer(f'Browser automation {status}')
+    
+    keyboard = generate_settings_keyboard(user_id)
+    await callback.message.edit_reply_markup(reply_markup=keyboard)
+
+
+@dp.callback_query(F.data == 'toggle_hide_info')
+async def callback_toggle_hide_info(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    current = sql_get_settings(user_id, ['hide_execution_info'])['hide_execution_info']
+    new_value = int(not current)
+    sql_change_setting(user_id, 'hide_execution_info', new_value)
+    status = 'hidden' if new_value else 'shown'
+    await callback.answer(f'Execution info {status}')
+    
+    keyboard = generate_settings_keyboard(user_id)
+    await callback.message.edit_reply_markup(reply_markup=keyboard)
+
+
+@dp.callback_query(F.data == 'header')
+async def callback_header(callback: CallbackQuery):
+    await callback.answer()
+
 
 @dp.callback_query(F.data.in_(['hide_execution_info', 'change_compound_model', 'change_browser_automation_enabled']))
 async def callback_change_setting(callback: CallbackQuery):
